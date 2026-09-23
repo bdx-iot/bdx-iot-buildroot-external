@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bdx-iot-external <noreply@bdx-iot-external>
+Date: Wed, 23 Sep 2026 00:00:00 +0200
+Subject: [PATCH] imx8mp: load OP-TEE (tee.bin) as a FIT loadable
+
+The shared imx8mp FIT/binman template only loads ATF before U-Boot.
+Add a "tee" image and reference it from loadables so the BL31 -> BL32
+(OP-TEE) -> BL33 (U-Boot) chain is used when BR2_TARGET_OPTEE_OS is
+enabled. TEE_LOAD_ADDR (0x56000000) matches the address already used by
+board/freescale/common/imx/imx8-bootloader-prepare.sh for imx8mp.
+
+Signed-off-by: bdx-iot-external <noreply@bdx-iot-external>
+---
+ arch/arm/dts/imx8mp-u-boot.dtsi | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm/dts/imx8mp-u-boot.dtsi b/arch/arm/dts/imx8mp-u-boot.dtsi
+--- a/arch/arm/dts/imx8mp-u-boot.dtsi
++++ b/arch/arm/dts/imx8mp-u-boot.dtsi
+@@ -186,6 +186,20 @@
+ 				};
+ #endif
+ 
++				tee {
++					description = "TEE firmware";
++					type = "firmware";
++					os = "tee";
++					arch = "arm64";
++					compression = "none";
++					load = <0x56000000>;
++					entry = <0x56000000>;
++
++					tee_blob: blob-ext {
++						filename = "tee.bin";
++					};
++				};
++
+ 				@fdt-SEQ {
+ 					description = "NAME";
+ 					type = "flat_dt";
+@@ -205,7 +219,7 @@
+ 					fdt = "fdt-SEQ";
+ 					firmware = "uboot";
+ #ifndef CONFIG_ARMV8_PSCI
+-					loadables = "atf";
++					loadables = "atf", "tee";
+ #endif
+ 				};
+ 			};
+--
+2.34.1

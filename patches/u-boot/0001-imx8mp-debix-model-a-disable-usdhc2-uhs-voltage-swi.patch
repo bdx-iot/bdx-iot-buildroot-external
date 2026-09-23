@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bdx-iot-external <noreply@bdx-iot-external>
+Date: Wed, 23 Sep 2026 00:00:00 +0200
+Subject: [PATCH] imx8mp-debix-model-a: disable usdhc2 UHS voltage switching
+
+The SD card slot intermittently fails the 1.8V UHS voltage switch on
+first init ("Card did not respond to voltage select! : -110"), leaving
+the controller unable to read the FAT partition until a manual
+"mmc dev 1" re-init. Disable UHS modes on usdhc2 so it stays in
+3.3V high-speed mode, which this board's SD slot handles reliably.
+
+Signed-off-by: bdx-iot-external <noreply@bdx-iot-external>
+---
+ arch/arm/dts/imx8mp-debix-model-a.dts | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm/dts/imx8mp-debix-model-a.dts b/arch/arm/dts/imx8mp-debix-model-a.dts
+--- a/arch/arm/dts/imx8mp-debix-model-a.dts
++++ b/arch/arm/dts/imx8mp-debix-model-a.dts
+@@ -262,6 +262,7 @@
+ 	pinctrl-2 = <&pinctrl_usdhc2_200mhz>, <&pinctrl_usdhc2_gpio>;
+ 	cd-gpios = <&gpio2 12 GPIO_ACTIVE_LOW>;
+ 	vmmc-supply = <&reg_usdhc2_vmmc>;
++	no-1-8-v;
+ 	bus-width = <4>;
+ 	status = "okay";
+ };
+--
+2.34.1

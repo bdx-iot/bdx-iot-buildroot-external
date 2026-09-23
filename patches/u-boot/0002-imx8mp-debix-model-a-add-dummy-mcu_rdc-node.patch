@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bdx-iot-external <noreply@bdx-iot-external>
+Date: Wed, 23 Sep 2026 00:00:00 +0200
+Subject: [PATCH] imx8mp-debix-model-a: add dummy mcu_rdc node for SPL
+
+SPL's board_handle_rdc_config() (arch/arm/mach-imx/spl.c) unconditionally
+looks up an "imx8m,mcu_rdc" node to configure the Cortex-M7 RDC before/after
+release, even though this board doesn't use the M7 core. Without the node
+SPL prints two harmless but noisy "Failed to find node!, err: -1!" errors
+on every boot. Add a no-op node (single all-zero terminator entry) so the
+lookup succeeds and the RDC configuration applied is a no-op.
+
+Signed-off-by: bdx-iot-external <noreply@bdx-iot-external>
+---
+ arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi b/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi
+--- a/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi
++++ b/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi
+@@ -8,6 +8,12 @@
+ #include "imx8mp-u-boot.dtsi"
+ 
+ / {
++	mcu_rdc {
++		compatible = "imx8m,mcu_rdc";
++		start-config = <0x0 0x0 0x0 0x0 0x0>;
++		stop-config = <0x0 0x0 0x0 0x0 0x0>;
++		bootph-pre-ram;
++	};
+ 	wdt-reboot {
+ 		compatible = "wdt-reboot";
+ 		wdt = <&wdog1>;
+--
+2.34.1

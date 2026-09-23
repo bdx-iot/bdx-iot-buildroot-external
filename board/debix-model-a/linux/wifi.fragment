@@ -1,0 +1,8 @@
+# brcmfmac must be a module: built-in means its SDIO probe (and firmware
+# request) can run before the real rootfs is mounted, causing "-2" ENOENT
+CONFIG_BRCMUTIL=m
+CONFIG_BRCMFMAC=m
+CONFIG_BRCMFMAC_SDIO=y
+CONFIG_BRCMFMAC_USB=y
+CONFIG_CFG80211_WEXT=y
+CONFIG_MMC_PWRSEQ_SIMPLE=y
