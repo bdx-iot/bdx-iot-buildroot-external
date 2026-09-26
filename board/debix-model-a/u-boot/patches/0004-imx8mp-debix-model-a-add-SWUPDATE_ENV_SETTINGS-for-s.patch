@@ -1,0 +1,54 @@
+From 7236d8d80dd35ded86058e98e6de44c3ab94d9ba Mon Sep 17 00:00:00 2001
+From: Joris OFFOUGA <offougajoris@icloud.com>
+Date: Sat, 26 Sep 2026 23:52:05 +0200
+Subject: [PATCH 4/5] imx8mp-debix-model-a: add SWUPDATE_ENV_SETTINGS for
+ software update management
+
+Signed-off-by: Joris OFFOUGA <offougajoris@icloud.com>
+---
+ include/configs/imx8mp_debix_model_a.h | 26 ++++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/include/configs/imx8mp_debix_model_a.h b/include/configs/imx8mp_debix_model_a.h
+index e82e8b16b1d..40f99d40367 100644
+--- a/include/configs/imx8mp_debix_model_a.h
++++ b/include/configs/imx8mp_debix_model_a.h
+@@ -26,9 +26,35 @@
+ 
+ #include <config_distro_bootcmd.h>
+ 
++#define SWUPDATE_ENV_SETTINGS \
++	"bootlimit=1\0"	\
++	"bootcount=0\0"	\
++	"upgrade_available=0\0"	\
++	"rootpart=2\0" \
++	\
++	"swu_setup="                                                     \
++	"setenv expand_bootargs \"setenv bootargs \\\\\"${bootargs}\\\\\"\"; "              \
++	"run expand_bootargs; "                                             \
++	"setenv expand_bootargs;\0"                                          \
++	\
++	"swu_altbootcmd="	\
++"if test ${rootpart} = 2; then " \
++	"echo Bootcount limit reached. Reverting to B; " \
++	"setenv rootpart 3; "	\
++	"else "	\
++	"echo Bootcount limit reached. Reverting to A; " \
++	"setenv rootpart 2; "	\
++	"fi; " \
++	"setenv upgrade_available 0; " \
++	"saveenv\0" \
++	\
++	"altbootcmd=run swu_altbootcmd; " \
++	"run bootcmd_mmc0\0"
++
+ /* Initial environment variables */
+ #define CFG_EXTRA_ENV_SETTINGS		\
+ 	BOOTENV \
++	SWUPDATE_ENV_SETTINGS \
+ 	"scriptaddr=" __stringify(CONFIG_SYS_LOAD_ADDR) "\0" \
+ 	"kernel_addr_r=" __stringify(CONFIG_SYS_LOAD_ADDR) "\0" \
+ 	"image=Image\0" \
+-- 
+2.43.0
+

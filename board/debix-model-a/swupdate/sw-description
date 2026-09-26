@@ -1,0 +1,43 @@
+software =
+{
+	version = "@@SWU_VERSION@@";
+	description = " i.MX8MP Debix Model A rootfs update";
+
+	imx8mp-debix = {
+		hardware-compatibility: [ "modela" ];
+		stable = {
+			rootfsA : {
+				images: (
+					{
+						filename = "rootfs.ext4.zst";
+						device = "/dev/mmcblk1p2";
+						type = "raw";
+						compressed = "zstd";
+						installed-directly = true;
+					}
+				);
+				bootenv: (
+					{ name = "rootpart"; value = "2"; },
+					{ name = "upgrade_available"; value = "1"; },
+					{ name = "bootcount"; value = "0"; }
+				);
+			};
+			rootfsB : {
+				images: (
+					{
+						filename = "rootfs.ext4.zst";
+						device = "/dev/mmcblk1p3";
+						type = "raw";
+						compressed = "zstd";
+						installed-directly = true;
+					}
+				);
+				bootenv: (
+					{ name = "rootpart"; value = "3"; },
+					{ name = "upgrade_available"; value = "1"; },
+					{ name = "bootcount"; value = "0"; }
+				);
+			};
+		};
+	};
+};

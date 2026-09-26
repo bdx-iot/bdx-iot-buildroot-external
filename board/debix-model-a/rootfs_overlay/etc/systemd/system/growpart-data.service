@@ -1,0 +1,14 @@
+[Unit]
+Description=Grow data partition to fill the disk
+DefaultDependencies=no
+Requires=dev-mmcblk1p4.device
+After=dev-mmcblk1p4.device
+Before=data.mount local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/growpart-data
+RemainAfterExit=yes
+
+[Install]
+WantedBy=local-fs.target

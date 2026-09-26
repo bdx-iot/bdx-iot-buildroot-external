@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 75f91c7c5c76f1b85fc4d8665f1e65480ee24567 Mon Sep 17 00:00:00 2001
 From: bdx-iot-external <noreply@bdx-iot-external>
 Date: Wed, 23 Sep 2026 00:00:00 +0200
-Subject: [PATCH] imx8mp-debix-model-a: disable usdhc2 UHS voltage switching
+Subject: [PATCH 1/5] imx8mp-debix-model-a: disable usdhc2 UHS voltage
+ switching
 
 The SD card slot intermittently fails the 1.8V UHS voltage switch on
 first init ("Card did not respond to voltage select! : -110"), leaving
@@ -15,6 +16,7 @@ Signed-off-by: bdx-iot-external <noreply@bdx-iot-external>
  1 file changed, 1 insertion(+)
 
 diff --git a/arch/arm/dts/imx8mp-debix-model-a.dts b/arch/arm/dts/imx8mp-debix-model-a.dts
+index 58dae612b4b..67534a7e9aa 100644
 --- a/arch/arm/dts/imx8mp-debix-model-a.dts
 +++ b/arch/arm/dts/imx8mp-debix-model-a.dts
 @@ -262,6 +262,7 @@
@@ -25,5 +27,6 @@ diff --git a/arch/arm/dts/imx8mp-debix-model-a.dts b/arch/arm/dts/imx8mp-debix-m
  	bus-width = <4>;
  	status = "okay";
  };
---
-2.34.1
+-- 
+2.43.0
+

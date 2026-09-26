@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 3435a75b7e243a3ccae41b4bbfd08dfcd41b71ab Mon Sep 17 00:00:00 2001
 From: bdx-iot-external <noreply@bdx-iot-external>
 Date: Wed, 23 Sep 2026 00:00:00 +0200
-Subject: [PATCH] imx8mp: load OP-TEE (tee.bin) as a FIT loadable
+Subject: [PATCH 3/5] imx8mp: load OP-TEE (tee.bin) as a FIT loadable
 
 The shared imx8mp FIT/binman template only loads ATF before U-Boot.
 Add a "tee" image and reference it from loadables so the BL31 -> BL32
@@ -11,10 +11,11 @@ board/freescale/common/imx/imx8-bootloader-prepare.sh for imx8mp.
 
 Signed-off-by: bdx-iot-external <noreply@bdx-iot-external>
 ---
- arch/arm/dts/imx8mp-u-boot.dtsi | 15 ++++++++++++++-
- 1 file changed, 14 insertions(+), 1 deletion(-)
+ arch/arm/dts/imx8mp-u-boot.dtsi | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
 
 diff --git a/arch/arm/dts/imx8mp-u-boot.dtsi b/arch/arm/dts/imx8mp-u-boot.dtsi
+index 479f0b838e4..3365ded44b2 100644
 --- a/arch/arm/dts/imx8mp-u-boot.dtsi
 +++ b/arch/arm/dts/imx8mp-u-boot.dtsi
 @@ -186,6 +186,20 @@
@@ -47,5 +48,6 @@ diff --git a/arch/arm/dts/imx8mp-u-boot.dtsi b/arch/arm/dts/imx8mp-u-boot.dtsi
  #endif
  				};
  			};
---
-2.34.1
+-- 
+2.43.0
+

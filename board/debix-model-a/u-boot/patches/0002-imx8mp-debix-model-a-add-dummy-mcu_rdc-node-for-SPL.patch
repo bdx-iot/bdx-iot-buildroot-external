@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From b37bb461a37fdb3f15e1b49f6dea344438cff626 Mon Sep 17 00:00:00 2001
 From: bdx-iot-external <noreply@bdx-iot-external>
 Date: Wed, 23 Sep 2026 00:00:00 +0200
-Subject: [PATCH] imx8mp-debix-model-a: add dummy mcu_rdc node for SPL
+Subject: [PATCH 2/5] imx8mp-debix-model-a: add dummy mcu_rdc node for SPL
 
 SPL's board_handle_rdc_config() (arch/arm/mach-imx/spl.c) unconditionally
 looks up an "imx8m,mcu_rdc" node to configure the Cortex-M7 RDC before/after
@@ -12,13 +12,14 @@ lookup succeeds and the RDC configuration applied is a no-op.
 
 Signed-off-by: bdx-iot-external <noreply@bdx-iot-external>
 ---
- arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi | 5 +++++
- 1 file changed, 5 insertions(+)
+ arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi | 6 ++++++
+ 1 file changed, 6 insertions(+)
 
 diff --git a/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi b/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi
+index 33bd89a8434..891cc4f5cd3 100644
 --- a/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi
 +++ b/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi
-@@ -8,6 +8,12 @@
+@@ -7,6 +7,12 @@
  #include "imx8mp-u-boot.dtsi"
  
  / {
@@ -31,5 +32,6 @@ diff --git a/arch/arm/dts/imx8mp-debix-model-a-u-boot.dtsi b/arch/arm/dts/imx8mp
  	wdt-reboot {
  		compatible = "wdt-reboot";
  		wdt = <&wdog1>;
---
-2.34.1
+-- 
+2.43.0
+

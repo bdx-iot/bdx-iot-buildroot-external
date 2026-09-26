@@ -1,0 +1,5 @@
+# shellcheck disable=SC2148
+
+if [ "$(fw_printenv -n upgrade_available)" -eq 1 ]; then
+	fw_setenv upgrade_available 0
+fi

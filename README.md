@@ -18,9 +18,10 @@ Defconfig: `configs/imx8mp_debix_model_a_defconfig`
   CAN (`flexcan1`/`flexcan2`), and the onboard WiFi/BT combo chip
   (BCM4345/6 on `usdhc1` SDIO + Bluetooth on `uart1`).
 - **OP-TEE**: enabled via `BR2_TARGET_OPTEE_OS` + `SPD=opteed` on ATF. See
-  `patches/u-boot/0003-*` and `0004-*`, and `external.mk` (patches
-  `host-imx-mkimage`'s `mkimage_fit_atf.sh` to add the missing `os = "tee";`
-  FIT property, since that's what SPL needs to locate BL32).
+  `board/debix-model-a/u-boot/uboot.fragment`, the `0003-*` U-Boot patch, and
+  `external.mk` (patches `host-imx-mkimage`'s `mkimage_fit_atf.sh` to add the
+  missing `os = "tee";` FIT property, since that's what SPL needs to locate
+  BL32).
 - **WiFi/BT firmware**: `board/debix-model-a/rootfs_overlay/usr/lib/firmware/brcm/`
   provides the missing default nvram calibration file for the BCM4345/6 chip
   (reused from a Raspberry Pi 4B/CM4 nvram — same chip family, but **not**
@@ -42,10 +43,18 @@ Defconfig: `configs/imx8mp_debix_model_a_defconfig`
   `board/debix-model-a/rootfs_overlay/etc/systemd/system.conf.d/10-watchdog.conf`
   configures PID 1 to service `/dev/watchdog0` every 30 seconds after userspace
   starts. Verify on target with `systemctl show -p RuntimeWatchdogUSec`.
+- **USB mass storage (UMS)**: `board/debix-model-a/u-boot/uboot.fragment` enables
+  U-Boot's USB gadget mass-storage command. At the U-Boot prompt, use
+  `mmc list` to identify the desired card/eMMC, then run `ums 0 mmc <devnum>`
+  with the board connected to a USB host through a device-capable USB port.
+  For example, `ums 0 mmc 0` exports MMC device 0. UMS runs until Ctrl-C and
+  exposes the raw MMC device, including its partitions, to the host; do not
+  mount or modify it on both the host and board at the same time.
 
-### U-Boot patches (`patches/u-boot/`)
+### U-Boot configuration and patches (`board/debix-model-a/u-boot/`)
 
-Applied via `BR2_TARGET_UBOOT_PATCH`, applied in order:
+The `uboot.fragment` file is merged into the board defconfig. Patches in
+`u-boot/patches/` are applied via `BR2_TARGET_UBOOT_PATCH`, in order:
 
 1. `0001-*-disable-usdhc2-uhs-voltage-swi.patch` — disables UHS voltage
    switching on the SD card slot (`no-1-8-v;`), fixing intermittent
@@ -56,9 +65,8 @@ Applied via `BR2_TARGET_UBOOT_PATCH`, applied in order:
    FIT entry to U-Boot's own binman template. Kept for consistency, but note
    the **actual** production image is built by `mkimage_fit_atf.sh` (patched
    separately via `external.mk`), not this template.
-4. `0004-*-enable-optee-tee-uclass.patch` — enables `CONFIG_TEE`/`CONFIG_OPTEE`
-   in U-Boot proper, so it can probe OP-TEE and perform the devicetree fixup
-   (`firmware/optee` node) that the Linux `optee` driver needs.
+The fragment also enables `CONFIG_TEE`/`CONFIG_OPTEE` in U-Boot proper, so it
+can probe OP-TEE and add the `firmware/optee` node required by Linux.
 
 ## Install System Dependencies
 

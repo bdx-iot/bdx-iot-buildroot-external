@@ -1,0 +1,9 @@
+rootfs=`swupdate -g`
+
+if [ $rootfs == '/dev/mmcblk1p2' ];then
+	selection="stable,rootfsB"
+else
+	selection="stable,rootfsA"
+fi
+
+SWUPDATE_ARGS="-H imx8mp-debix:modela -e ${selection} -f /etc/swupdate.cfg"

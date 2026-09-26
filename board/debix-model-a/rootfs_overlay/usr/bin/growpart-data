@@ -1,0 +1,23 @@
+#!/bin/sh
+# Grow the last (data) partition to the end of the disk; no-op once done.
+set -e
+
+DISK=/dev/mmcblk1
+PART_NUM=4
+
+disk=$(basename "${DISK}")
+part="${disk}p${PART_NUM}"
+
+total=$(cat "/sys/block/${disk}/size")
+start=$(cat "/sys/block/${disk}/${part}/start")
+size=$(cat "/sys/block/${disk}/${part}/size")
+
+# Sizes are in 512-byte sectors; ignore less than 1 MiB of trailing space.
+if [ $((total - start - size)) -lt 2048 ]; then
+	echo "${DISK}p${PART_NUM} already fills the disk"
+	exit 0
+fi
+
+parted -s "${DISK}" resizepart "${PART_NUM}" 100%
+udevadm settle
+echo "${DISK}p${PART_NUM} resized to fill the disk"

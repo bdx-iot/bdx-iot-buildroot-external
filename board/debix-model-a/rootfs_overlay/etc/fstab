@@ -1,0 +1,2 @@
+# <device>      <mount>  <type>  <options>                   <dump>  <pass>
+/dev/mmcblk1p4  /data    ext4    defaults,x-systemd.growfs   0       2
