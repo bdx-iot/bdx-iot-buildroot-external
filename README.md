@@ -29,6 +29,19 @@ Defconfig: `configs/imx8mp_debix_model_a_defconfig`
   `board/debix-model-a/linux/wifi.fragment`. This is required: a built-in
   driver's SDIO probe (and firmware request) can run before the real rootfs
   is mounted, causing spurious firmware-not-found errors.
+- **SSH/SCP**: OpenSSH client and server are enabled in the defconfig. The
+  systemd `sshd.service` starts the server and generates host keys on first
+  boot; the server package includes `sftp-server`, which modern `scp` clients
+  use. The overlay's `sshd_config` requires password authentication for root
+  and rejects empty passwords and public-key-only login. Set a non-empty root
+  password with `make menuconfig` under **System configuration** before
+  building; the password is intentionally not stored in the external defconfig.
+  Then connect with `ssh root@<board-ip>` or copy files with
+  `scp <file> root@<board-ip>:/root/`.
+- **Watchdog**: U-Boot starts WDT1 with a 60-second timeout. The systemd drop-in
+  `board/debix-model-a/rootfs_overlay/etc/systemd/system.conf.d/10-watchdog.conf`
+  configures PID 1 to service `/dev/watchdog0` every 30 seconds after userspace
+  starts. Verify on target with `systemctl show -p RuntimeWatchdogUSec`.
 
 ### U-Boot patches (`patches/u-boot/`)
 

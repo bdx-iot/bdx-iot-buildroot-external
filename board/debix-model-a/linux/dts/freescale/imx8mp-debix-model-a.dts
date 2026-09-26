@@ -74,6 +74,46 @@
 		pinctrl-0 = <&pinctrl_wlan_reg_on>;
 		reset-gpios = <&gpio2 10 GPIO_ACTIVE_LOW>;
 	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		vdev0vring0: vdev0vring0@55000000 {
+			reg = <0 0x55000000 0 0x8000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@55008000 {
+			reg = <0 0x55008000 0 0x8000>;
+			no-map;
+		};
+
+		vdevbuffer: vdevbuffer@55400000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0x55400000 0 0x100000>;
+			no-map;
+		};
+
+		rsc_table: rsc-table@550ff000 {
+			reg = <0 0x550ff000 0 0x1000>;
+			no-map;
+		};
+	};
+
+	imx8mp-cm7 {
+		compatible = "fsl,imx8mn-cm7";
+		rsc-da = <0x55000000>;
+		clocks = <&clk IMX8MP_CLK_M7_DIV>,
+			 <&audio_blk_ctrl IMX8MP_CLK_AUDIOMIX_AUDPLL_ROOT>;
+		clock-names = "core", "audio";
+		mbox-names = "tx", "rx", "rxdb";
+		mboxes = <&mu 0 1>, <&mu 1 1>, <&mu 3 1>;
+		memory-region = <&vdevbuffer>, <&vdev0vring0>,
+				<&vdev0vring1>, <&rsc_table>;
+		status = "okay";
+	};
 };
 
 &A53_0 {
