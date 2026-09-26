@@ -19,19 +19,6 @@
 	chosen {
 		stdout-path = &uart2;
 	};
-
-	hdmi-connector {
-		compatible = "hdmi-connector";
-		label = "hdmi";
-		type = "a";
-
-		port {
-			hdmi_connector_in: endpoint {
-				remote-endpoint = <&hdmi_tx_out>;
-			};
-		};
-	};
-
 	leds {
 		compatible = "gpio-leds";
 		pinctrl-names = "default";
@@ -178,14 +165,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_hdmi>;
 	status = "okay";
-
-	ports {
-		port@1 {
-			hdmi_tx_out: endpoint {
-				remote-endpoint = <&hdmi_connector_in>;
-			};
-		};
-	};
 };
 
 /* Renamed from hdmi_tx_phy to match the hdmiphy label in this kernel's imx8mp.dtsi */
