@@ -25,9 +25,11 @@ SWU_VARS="${BUILD_DIR}/swu-vars.cfg"
 printf 'variables = { SWU_VERSION = "%s"; };\n' "${SWU_VERSION}" > "${SWU_VARS}"
 
 # -n: rootfs.ext4.zst is already compressed; keep compressed = "zstd" as-is.
-"${HOST_DIR}/bin/swugenerator" -n \
+echo "Generating ${BINARIES_DIR}/debix-model-a.swu (version ${SWU_VERSION})"
+"${HOST_DIR}/bin/swugenerator" -n -l DEBUG \
 	-s "${BOARD_DIR}/swupdate/sw-description" \
 	-c "${SWU_VARS}" \
 	-a "${BINARIES_DIR}" \
 	-o "${BINARIES_DIR}/debix-model-a.swu" \
 	create
+echo "Generated ${BINARIES_DIR}/debix-model-a.swu"
