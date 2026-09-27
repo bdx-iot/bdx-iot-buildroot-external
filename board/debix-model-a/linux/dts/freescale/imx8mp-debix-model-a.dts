@@ -392,6 +392,7 @@
 };
 
 &usb3_phy1 {
+	vbus-supply = <&reg_usb_hub>;
 	status = "okay";
 };
 
