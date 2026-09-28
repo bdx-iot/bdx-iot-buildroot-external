@@ -6,11 +6,9 @@ set -e
 BOARD_DIR="$(dirname "$0")"
 GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
 
-"${HOST_DIR}/bin/mkimage" -A arm64 -O linux -T script -C none \
-	-n "Debix Model A boot script" \
-	-d "${BOARD_DIR}/boot.cmd" "${BINARIES_DIR}/boot.scr"
 
 rm -rf "${GENIMAGE_TMP}"
+rm -rf "${BINARIES_DIR}"/*.swu
 
 genimage \
 	--rootpath "${TARGET_DIR}" \
@@ -21,15 +19,16 @@ genimage \
 
 SWU_VERSION="${SWU_VERSION:-$(date -u +%Y.%m.%d-%H%M)}"
 SWU_VARS="${BUILD_DIR}/swu-vars.cfg"
+SWU_IMAGE="${BINARIES_DIR}/debix-model-a-${SWU_VERSION}.swu"
 
 printf 'variables = { SWU_VERSION = "%s"; };\n' "${SWU_VERSION}" > "${SWU_VARS}"
 
 # -n: rootfs.ext4.zst is already compressed; keep compressed = "zstd" as-is.
-echo "Generating ${BINARIES_DIR}/debix-model-a.swu (version ${SWU_VERSION})"
+echo "Generating ${SWU_IMAGE} (version ${SWU_VERSION})"
 "${HOST_DIR}/bin/swugenerator" -n -l DEBUG \
 	-s "${BOARD_DIR}/swupdate/sw-description" \
 	-c "${SWU_VARS}" \
 	-a "${BINARIES_DIR}" \
-	-o "${BINARIES_DIR}/debix-model-a.swu" \
+	-o "${SWU_IMAGE}" \
 	create
-echo "Generated ${BINARIES_DIR}/debix-model-a.swu"
+echo "Generated ${SWU_IMAGE}"
