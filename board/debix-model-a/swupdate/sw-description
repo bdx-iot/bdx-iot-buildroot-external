@@ -14,6 +14,23 @@ software =
 						type = "raw";
 						compressed = "zstd";
 						installed-directly = true;
+					},
+					{
+						filename = "imx8-boot-sd.bin";
+						device = "/dev/mmcblk1";
+						type = "raw";
+						offset = "32K";
+						installed-directly = true;
+					}
+				);
+				files: (
+					{
+						filename = "boot.scr";
+						path = "/boot.scr";
+						device = "/dev/mmcblk1p1";
+						filesystem = "vfat";
+						type = "rawfile";
+						properties = { atomic-install = "true"; };
 					}
 				);
 				bootenv: (
@@ -30,6 +47,23 @@ software =
 						type = "raw";
 						compressed = "zstd";
 						installed-directly = true;
+					},
+					{
+						filename = "imx8-boot-sd.bin";
+						device = "/dev/mmcblk1";
+						type = "raw";
+						offset = "32K";
+						installed-directly = true;
+					}
+				);
+				files: (
+					{
+						filename = "boot.scr";
+						path = "/boot.scr";
+						device = "/dev/mmcblk1p1";
+						filesystem = "vfat";
+						type = "rawfile";
+						properties = { atomic-install = "true"; };
 					}
 				);
 				bootenv: (
