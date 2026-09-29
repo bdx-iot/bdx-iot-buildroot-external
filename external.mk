@@ -6,3 +6,5 @@ define BDX_IOT_EXTERNAL_IMX_MKIMAGE_FIX_TEE_OS
 		$(SED) '/description = "TEE firmware";/a\                        os = "tee";' {} +
 endef
 HOST_IMX_MKIMAGE_POST_PATCH_HOOKS += BDX_IOT_EXTERNAL_IMX_MKIMAGE_FIX_TEE_OS
+
+include $(sort $(wildcard $(BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH)/package/*/*.mk))

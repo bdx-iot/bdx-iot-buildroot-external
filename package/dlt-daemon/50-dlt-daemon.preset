@@ -1,0 +1,4 @@
+enable dlt.service
+disable dlt-adaptor-udp.service
+disable dlt-example-user.service
+disable dlt-receive.service

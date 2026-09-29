@@ -1,0 +1,27 @@
+Subject: [PATCH] system: only compile the watchdog with watchdog support
+
+Without WITH_SYSTEMD_WATCHDOG, dlt-system-watchdog.c contains no code and
+fails the -Werror=pedantic build as an empty translation unit.
+
+---
+ src/system/CMakeLists.txt | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/system/CMakeLists.txt b/src/system/CMakeLists.txt
+--- a/src/system/CMakeLists.txt
++++ b/src/system/CMakeLists.txt
+@@ -19,7 +19,11 @@ endif(WITH_SYSTEMD_WATCHDOG OR WITH_SYSTEMD OR WITH_SYSTEMD_JOURNAL)
+ 
+ set(dlt_system_SRCS dlt-system.c dlt-system-options.c dlt-system-process-handling.c
+        dlt-system-logfile.c dlt-system-processes.c dlt-system-shell.c
+-       dlt-system-syslog.c dlt-system-watchdog.c dlt-system-journal.c)
++       dlt-system-syslog.c dlt-system-journal.c)
++
++if(WITH_SYSTEMD_WATCHDOG)
++  list(APPEND dlt_system_SRCS dlt-system-watchdog.c)
++endif()
+ 
+ if(WITH_DLT_FILETRANSFER)
+   set(dlt_system_SRCS ${dlt_system_SRCS} dlt-system-filetransfer.c)
+-- 
+2.43.0

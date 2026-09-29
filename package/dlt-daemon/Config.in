@@ -1,0 +1,93 @@
+config BR2_PACKAGE_DLT_DAEMON
+	bool "dlt-daemon"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  COVESA Diagnostic Log and Trace daemon and client library.
+
+	  https://github.com/COVESA/dlt-daemon
+
+if BR2_PACKAGE_DLT_DAEMON
+
+config BR2_PACKAGE_DLT_DAEMON_CONSOLE
+	bool "console tools"
+	help
+	  Build the DLT command-line console tools.
+
+config BR2_PACKAGE_DLT_DAEMON_EXAMPLES
+	bool "examples"
+	help
+	  Build the DLT example applications.
+
+config BR2_PACKAGE_DLT_DAEMON_SYSTEM
+	bool "system monitor"
+	help
+	  Build the dlt-system monitor.
+
+config BR2_PACKAGE_DLT_DAEMON_ADAPTOR
+	bool "adaptor"
+	help
+	  Build both the DLT stdin and UDP adaptors.
+
+config BR2_PACKAGE_DLT_DAEMON_ADAPTOR_STDIN
+	bool "stdin adaptor"
+	help
+	  Build the DLT stdin adaptor.
+
+config BR2_PACKAGE_DLT_DAEMON_ADAPTOR_UDP
+	bool "UDP adaptor"
+	help
+	  Build the DLT UDP adaptor.
+
+config BR2_PACKAGE_DLT_DAEMON_UDP_CONNECTION
+	bool "UDP connection"
+	help
+	  Enable UDP multicast connections in the daemon.
+
+config BR2_PACKAGE_DLT_DAEMON_IPV6
+	bool "IPv6 support"
+	help
+	  Enable IPv6 support in dlt-daemon.
+
+config BR2_PACKAGE_DLT_DAEMON_FILETRANSFER
+	bool "file transfer"
+	depends on BR2_PACKAGE_DLT_DAEMON_SYSTEM
+	select BR2_PACKAGE_ZLIB
+	help
+	  Enable file transfer support in dlt-system.
+
+config BR2_PACKAGE_DLT_DAEMON_DBUS
+	bool "D-Bus adaptor"
+	depends on BR2_USE_MMU # dbus
+	select BR2_PACKAGE_DBUS
+	help
+	  Build the DLT D-Bus adaptor.
+
+config BR2_PACKAGE_DLT_DAEMON_LOGSTORAGE_GZIP
+	bool "gzip log storage"
+	select BR2_PACKAGE_ZLIB
+	help
+	  Enable gzip compression in DLT log storage.
+
+config BR2_PACKAGE_DLT_DAEMON_EXTENDED_FILTERING
+	bool "extended filtering"
+	depends on BR2_TOOLCHAIN_HAS_SYNC_4 # json-c
+	select BR2_PACKAGE_JSON_C
+	help
+	  Enable JSON-based extended filtering.
+
+config BR2_PACKAGE_DLT_DAEMON_SYSTEMD_WATCHDOG
+	bool "systemd watchdog"
+	depends on BR2_PACKAGE_SYSTEMD
+	help
+	  Enable the systemd watchdog for dlt-daemon.
+
+config BR2_PACKAGE_DLT_DAEMON_SYSTEMD_JOURNAL
+	bool "systemd journal"
+	depends on BR2_PACKAGE_SYSTEMD && BR2_PACKAGE_DLT_DAEMON_SYSTEM
+	help
+	  Enable systemd journal integration in dlt-system.
+
+endif
+
+comment "dlt-daemon needs a toolchain w/ threads"
+	depends on !BR2_TOOLCHAIN_HAS_THREADS
