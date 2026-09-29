@@ -1,0 +1,13 @@
+[Unit]
+Description=OP-TEE supplicant
+Wants=dev-teepriv0.device
+After=dev-teepriv0.device
+RequiresMountsFor=/data/tee
+
+[Service]
+ExecStart=/usr/sbin/tee-supplicant /dev/teepriv0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
