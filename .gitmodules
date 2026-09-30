@@ -1,0 +1,3 @@
+[submodule "board/debix-model-a/swupdate/source"]
+	path = board/debix-model-a/swupdate/source
+	url = https://github.com/sbabic/swupdate.git

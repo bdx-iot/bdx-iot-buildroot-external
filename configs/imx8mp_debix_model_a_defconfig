@@ -8,6 +8,7 @@ BR2_INIT_SYSTEMD=y
 BR2_TARGET_GENERIC_GETTY_PORT="ttymxc1"
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH)/board/debix-model-a/rootfs_overlay"
 BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH)/board/debix-model-a/patches"
+BR2_PACKAGE_OVERRIDE_FILE="$(BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH)/board/debix-model-a/swupdate/local.mk"
 BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH)/board/debix-model-a/post-build.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH)/board/debix-model-a/fix-tee-bin.sh board/freescale/common/imx/imx8-bootloader-prepare.sh $(BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH)/board/debix-model-a/post-image.sh"
 BR2_ROOTFS_POST_SCRIPT_ARGS="${UBOOT_DIR}/arch/arm/dts/imx8mp-debix-model-a.dtb"
