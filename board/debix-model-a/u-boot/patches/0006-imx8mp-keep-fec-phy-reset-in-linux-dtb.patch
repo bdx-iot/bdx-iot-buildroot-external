@@ -1,0 +1,21 @@
+Subject: [PATCH] imx8mp: keep FEC PHY reset GPIO in Linux DTB
+
+The i.MX8M system FDT fixup removes phy-reset-gpios from both Ethernet
+nodes before handing the FDT to Linux. The FEC driver uses this GPIO to
+reset its PHY during probe, before registering and scanning the MDIO bus.
+Keep the property on the FEC node so the PHY is out of reset when Linux
+probes address 0.
+
+---
+ arch/arm/mach-imx/imx8m/soc.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/arch/arm/mach-imx/imx8m/soc.c b/arch/arm/mach-imx/imx8m/soc.c
+--- a/arch/arm/mach-imx/imx8m/soc.c
++++ b/arch/arm/mach-imx/imx8m/soc.c
+@@ -1,5 +1,4 @@
+ 		{ "/soc@0/bus@32c00000/usb@32e40000", "extcon" },
+ 		{ "/soc@0/bus@32c00000/usb@32e50000", "extcon" },
+-		{ "/soc@0/bus@30800000/ethernet@30be0000", "phy-reset-gpios" },
+ 		{ "/soc@0/bus@30800000/ethernet@30bf0000", "phy-reset-gpios" }
+ 	};
