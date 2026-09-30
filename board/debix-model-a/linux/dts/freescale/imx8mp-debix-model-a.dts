@@ -119,6 +119,10 @@
 	cpu-supply = <&buck2>;
 };
 
+&sec_jr2 {
+    status = "disabled";
+};
+
 /* BMB-08 I/O baseboard */
 &flexcan1 {
 	pinctrl-names = "default";
