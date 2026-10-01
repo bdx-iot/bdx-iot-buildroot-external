@@ -1,5 +1,6 @@
 # brcmfmac must be a module: built-in means its SDIO probe (and firmware
 # request) can run before the real rootfs is mounted, causing "-2" ENOENT
+CONFIG_RFKILL=y
 CONFIG_BRCMUTIL=m
 CONFIG_BRCMFMAC=m
 CONFIG_BRCMFMAC_SDIO=y

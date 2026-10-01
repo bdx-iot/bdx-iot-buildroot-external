@@ -1,6 +1,17 @@
 # bdx-iot-external
 
-Buildroot external tree for the Polyhex Debix Model A (i.MX8M Plus) board.
+Buildroot external tree for the Polyhex Debix Model A (i.MX8M Plus) and
+WaRP7 (i.MX7S) boards.
+
+## Shared files: `board/common`
+
+Both defconfigs list `board/common/rootfs_overlay` first in
+`BR2_ROOTFS_OVERLAY`, then the board overlay; a file present in both is taken
+from the board overlay. Also shared: the busybox and WiFi/Bluetooth kernel
+fragments, the OP-TEE supplicant service, `growpart-data` (called with the
+disk and partition number by each board's `growpart-data.service`) and the
+SWUpdate configuration (`board/common/swupdate`, `source` is a git
+submodule).
 
 ## Board support: `debix-model-a`
 
@@ -27,7 +38,7 @@ Defconfig: `configs/imx8mp_debix_model_a_defconfig`
   (reused from a Raspberry Pi 4B/CM4 nvram — same chip family, but **not**
   RF-tuned for this board's antenna; replace with Polyhex's file if available).
 - `brcmfmac` is built as a kernel **module** (not built-in) — see
-  `board/debix-model-a/linux/wifi.fragment`. This is required: a built-in
+  `board/common/linux/wifi.fragment`. This is required: a built-in
   driver's SDIO probe (and firmware request) can run before the real rootfs
   is mounted, causing spurious firmware-not-found errors.
 - **SSH/SCP**: OpenSSH client and server are enabled in the defconfig. The
@@ -40,7 +51,7 @@ Defconfig: `configs/imx8mp_debix_model_a_defconfig`
   Then connect with `ssh root@<board-ip>` or copy files with
   `scp <file> root@<board-ip>:/root/`.
 - **Watchdog**: U-Boot starts WDT1 with a 60-second timeout. The systemd drop-in
-  `board/debix-model-a/rootfs_overlay/etc/systemd/system.conf.d/10-watchdog.conf`
+  `board/common/rootfs_overlay/etc/systemd/system.conf.d/10-watchdog.conf`
   configures PID 1 to service `/dev/watchdog0` every 30 seconds after userspace
   starts. Verify on target with `systemctl show -p RuntimeWatchdogUSec`.
 - **USB mass storage (UMS)**: `board/debix-model-a/u-boot/uboot.fragment` enables
@@ -67,6 +78,32 @@ The `uboot.fragment` file is merged into the board defconfig. Patches in
    separately via `external.mk`), not this template.
 The fragment also enables `CONFIG_TEE`/`CONFIG_OPTEE` in U-Boot proper, so it
 can probe OP-TEE and add the `firmware/optee` node required by Linux.
+
+## Board support: `warp7`
+
+Defconfig: `configs/warp7_defconfig`
+
+- **Boot chain**: BootROM → TF-A BL2 (`PLAT=warp7`, BL2 at EL3) → OP-TEE
+  (BL32, `imx-mx7swarp7_mbl`) → U-Boot (BL33, `warp7_bl33_defconfig`) → Linux.
+  See <https://trustedfirmware-a.readthedocs.io/en/stable/plat/warp7.html>.
+- **Boot media** (eMMC, `mmc 0` in U-Boot, `/dev/mmcblk2` in Linux):
+  `bl2.bin.imx` at 1K, U-Boot environment at 512K/640K, `fip.bin` at 1M (BL2
+  reads at most 1 MiB), then boot VFAT (`boot.scr`), rootfs A/B and data, as
+  on the Debix. `board/warp7/post-image.sh` wraps `bl2.bin` with the i.MX
+  header using U-Boot's `u-boot.cfgout` (DDR init from `imximage.cfg`).
+- **OP-TEE**: placed by TF-A in the last 32 MiB of DDR (0x9e000000); the
+  Linux devicetree `board/warp7/linux/dts/nxp/imx/imx7s-warp.dts`
+  reserves it and adds the `firmware/optee` node.
+- **SWUpdate**: `board/warp7/u-boot/patches/0001-*` adds the A/B and bootcount
+  variables to U-Boot's default environment (`rootpart` already exists in
+  `warp7.h`).
+- **U-Boot devicetree**: U-Boot builds the upstream `nxp/imx/imx7s-warp.dts`
+  (`OF_UPSTREAM`); board nodes (MCP23008 GPIO expander and boot LED, MCP7940x
+  RTC, mikroBUS reset hog) are appended from
+  `board/warp7/u-boot/imx7s-warp-extra.dtsi` via
+  `CONFIG_DEVICE_TREE_INCLUDES` and `BR2_TARGET_UBOOT_CUSTOM_DTS_PATH`.
+- **Flashing**: at the U-Boot prompt run `ums 0 mmc 0`, then
+  `sudo dd if=output/images/sdcard.img of=/dev/sdX bs=1M` on the host.
 
 ## Install System Dependencies
 

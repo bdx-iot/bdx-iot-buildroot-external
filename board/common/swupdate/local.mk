@@ -1,0 +1,1 @@
+SWUPDATE_OVERRIDE_SRCDIR = $(BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH)/board/common/swupdate/source

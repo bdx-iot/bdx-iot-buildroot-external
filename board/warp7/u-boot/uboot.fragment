@@ -1,0 +1,17 @@
+# Merged into warp7_bl33_defconfig: U-Boot runs as TF-A BL33 (non-secure).
+# The environment sits between bl2.bin.imx (1K) and the FIP (1M).
+CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
+CONFIG_ENV_OFFSET_REDUND=0xA0000
+CONFIG_BOOTCOUNT_LIMIT=y
+CONFIG_BOOTCOUNT_ENV=y
+# Board nodes from board/warp7/u-boot/imx7s-warp-extra.dtsi, copied into
+# arch/arm/dts/ by BR2_TARGET_UBOOT_CUSTOM_DTS_PATH
+CONFIG_DEVICE_TREE_INCLUDES="imx7s-warp-extra.dtsi"
+CONFIG_GPIO_HOG=y
+CONFIG_MCP230XX_GPIO=y
+CONFIG_LED=y
+CONFIG_LED_GPIO=y
+CONFIG_DM_RTC=y
+CONFIG_RTC_DS1307=y
+CONFIG_CMD_I2C=y
+CONFIG_CMD_RTC=y

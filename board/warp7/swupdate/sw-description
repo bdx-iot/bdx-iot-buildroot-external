@@ -1,0 +1,91 @@
+software =
+{
+	version = "@@SWU_VERSION@@";
+	description = " i.MX7S WaRP7 rootfs update";
+
+	imx7s-warp = {
+		hardware-compatibility: [ "1.0" ];
+		stable = {
+			rootfsA : {
+				images: (
+					{
+						filename = "rootfs.ext4.zst";
+						device = "/dev/mmcblk2p2";
+						type = "raw";
+						compressed = "zstd";
+						installed-directly = true;
+					},
+					{
+						filename = "bl2.bin.imx";
+						device = "/dev/mmcblk2";
+						type = "raw";
+						offset = "1K";
+						installed-directly = true;
+					},
+					{
+						filename = "fip.bin";
+						device = "/dev/mmcblk2";
+						type = "raw";
+						offset = "1M";
+						installed-directly = true;
+					}
+				);
+				files: (
+					{
+						filename = "boot.scr";
+						path = "/boot.scr";
+						device = "/dev/mmcblk2p1";
+						filesystem = "vfat";
+						type = "rawfile";
+						properties = { atomic-install = "true"; };
+					}
+				);
+				bootenv: (
+					{ name = "rootpart"; value = "2"; },
+					{ name = "upgrade_available"; value = "1"; },
+					{ name = "bootcount"; value = "0"; }
+				);
+			};
+			rootfsB : {
+				images: (
+					{
+						filename = "rootfs.ext4.zst";
+						device = "/dev/mmcblk2p3";
+						type = "raw";
+						compressed = "zstd";
+						installed-directly = true;
+					},
+					{
+						filename = "bl2.bin.imx";
+						device = "/dev/mmcblk2";
+						type = "raw";
+						offset = "1K";
+						installed-directly = true;
+					},
+					{
+						filename = "fip.bin";
+						device = "/dev/mmcblk2";
+						type = "raw";
+						offset = "1M";
+						installed-directly = true;
+					}
+				);
+				files: (
+					{
+						filename = "boot.scr";
+						path = "/boot.scr";
+						device = "/dev/mmcblk2p1";
+						filesystem = "vfat";
+						type = "rawfile";
+						properties = { atomic-install = "true"; };
+					}
+				);
+				bootenv: (
+					{ name = "rootpart"; value = "3"; },
+					{ name = "upgrade_available"; value = "1"; },
+					{ name = "bootcount"; value = "0"; }
+				);
+			};
+		};
+	};
+};
