@@ -9,7 +9,8 @@ Both defconfigs list `board/common/rootfs_overlay` first in
 `BR2_ROOTFS_OVERLAY`, then the board overlay; a file present in both is taken
 from the board overlay. Also shared: the busybox and WiFi/Bluetooth kernel
 fragments, the OP-TEE supplicant service, `growpart-data` (called with the
-disk and partition number by each board's `growpart-data.service`) and the
+disk and partition number by each board's `growpart-data.service`), the
+package patches (`board/common/patches`, `BR2_GLOBAL_PATCH_DIR`) and the
 SWUpdate configuration (`board/common/swupdate`, `source` is a git
 submodule).
 
