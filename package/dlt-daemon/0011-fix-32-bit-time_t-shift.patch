@@ -1,0 +1,189 @@
+fix shift-count-overflow with 32-bit time_t
+
+The DLT v2 headers store seconds on 40 bits and extract the upper byte
+with "(x >> 32)". On 32-bit targets without 64-bit time_t (e.g. ARMv7
+glibc), time_t is 32 bits wide, so the shift count equals the type
+width: this is undefined behaviour and breaks the build with
+-Werror=shift-count-overflow. Widen the value to uint64_t before
+shifting; this yields 0 for the upper byte on such targets and is a
+no-op where time_t is already 64 bits.
+
+Upstream-Status: Pending
+Signed-off-by: Joris OFFOUGA <offougajoris@gmail.com>
+diff --git a/src/daemon/dlt-daemon.c b/src/daemon/dlt-daemon.c
+--- a/src/daemon/dlt-daemon.c
++++ b/src/daemon/dlt-daemon.c
+@@ -2695,7 +2695,7 @@ int dlt_daemon_log_internal(DltDaemon *daemon, DltDaemonLocal *daemon_local,
+             uint32_t tcnt = (uint32_t)(GetTickCount()); /* GetTickCount() in 10 ms resolution */
+             tcnt_seconds = tcnt / 100;
+             tcnt_ns = (tcnt - (tcnt*100)) * 10000;
+-            msg.headerextrav2.seconds[0]=(tcnt_seconds >> 32) & 0xFF;
++            msg.headerextrav2.seconds[0]=((uint64_t)tcnt_seconds >> 32) & 0xFF;
+             msg.headerextrav2.seconds[1]=(uint8_t)((tcnt_seconds >> 24) & 0xFF);
+             msg.headerextrav2.seconds[2]=(uint8_t)((tcnt_seconds >> 16) & 0xFF);
+             msg.headerextrav2.seconds[3]=(uint8_t)((tcnt_seconds >> 8) & 0xFF);
+@@ -2704,7 +2704,7 @@ int dlt_daemon_log_internal(DltDaemon *daemon, DltDaemonLocal *daemon_local,
+                 msg.headerextrav2.nanoseconds = tcnt_ns;
+             }
+         }else{
+-            msg.headerextrav2.seconds[0]=(uint8_t)((t >> 32) & 0xFF);
++            msg.headerextrav2.seconds[0]=(uint8_t)(((uint64_t)t >> 32) & 0xFF);
+             msg.headerextrav2.seconds[1]=(uint8_t)((t >> 24) & 0xFF);
+             msg.headerextrav2.seconds[2]=(uint8_t)((t >> 16) & 0xFF);
+             msg.headerextrav2.seconds[3]=(uint8_t)((t >> 8) & 0xFF);
+@@ -2714,7 +2714,7 @@ int dlt_daemon_log_internal(DltDaemon *daemon, DltDaemonLocal *daemon_local,
+ #else
+         struct timespec ts;
+         if(clock_gettime(CLOCK_REALTIME, &ts) == 0) {
+-            msg.headerextrav2.seconds[0]=(uint8_t)((ts.tv_sec >> 32) & 0xFF);
++            msg.headerextrav2.seconds[0]=(uint8_t)(((uint64_t)ts.tv_sec >> 32) & 0xFF);
+             msg.headerextrav2.seconds[1]=(uint8_t)((ts.tv_sec >> 24) & 0xFF);
+             msg.headerextrav2.seconds[2]=(uint8_t)((ts.tv_sec >> 16) & 0xFF);
+             msg.headerextrav2.seconds[3]=(uint8_t)((ts.tv_sec >> 8) & 0xFF);
+@@ -2723,7 +2723,7 @@ int dlt_daemon_log_internal(DltDaemon *daemon, DltDaemonLocal *daemon_local,
+                 msg.headerextrav2.nanoseconds = (uint32_t) ts.tv_nsec; /* value is long */
+             }
+         }else if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+-            msg.headerextrav2.seconds[0]=(uint8_t)((ts.tv_sec >> 32) & 0xFF);
++            msg.headerextrav2.seconds[0]=(uint8_t)(((uint64_t)ts.tv_sec >> 32) & 0xFF);
+             msg.headerextrav2.seconds[1]=(uint8_t)((ts.tv_sec >> 24) & 0xFF);
+             msg.headerextrav2.seconds[2]=(uint8_t)((ts.tv_sec >> 16) & 0xFF);
+             msg.headerextrav2.seconds[3]=(uint8_t)((ts.tv_sec >> 8) & 0xFF);
+diff --git a/src/daemon/dlt_daemon_client.c b/src/daemon/dlt_daemon_client.c
+--- a/src/daemon/dlt_daemon_client.c
++++ b/src/daemon/dlt_daemon_client.c
+@@ -857,7 +857,7 @@ int dlt_daemon_client_send_control_message_v2(int sock,
+         uint32_t tcnt = (uint32_t)(GetTickCount()); /* GetTickCount() in 10 ms resolution */
+         tcnt_seconds = tcnt / 100;
+         tcnt_ns = (tcnt - (tcnt*100)) * 10000;
+-        msg->headerextrav2.seconds[0]=(tcnt_seconds >> 32) & 0xFF;
++        msg->headerextrav2.seconds[0]=((uint64_t)tcnt_seconds >> 32) & 0xFF;
+         msg->headerextrav2.seconds[1]=(tcnt_seconds >> 24) & 0xFF;
+         msg->headerextrav2.seconds[2]=(tcnt_seconds >> 16) & 0xFF;
+         msg->headerextrav2.seconds[3]=(tcnt_seconds >> 8) & 0xFF;
+@@ -866,7 +866,7 @@ int dlt_daemon_client_send_control_message_v2(int sock,
+             msg->headerextrav2.nanoseconds = tcnt_ns;
+         }
+     } else {
+-        msg->headerextrav2.seconds[0]=(t >> 32) & 0xFF;
++        msg->headerextrav2.seconds[0]=((uint64_t)t >> 32) & 0xFF;
+         msg->headerextrav2.seconds[1]=(t >> 24) & 0xFF;
+         msg->headerextrav2.seconds[2]=(t >> 16) & 0xFF;
+         msg->headerextrav2.seconds[3]=(t >> 8) & 0xFF;
+@@ -876,7 +876,7 @@ int dlt_daemon_client_send_control_message_v2(int sock,
+ #else
+     struct timespec ts;
+     if (clock_gettime(CLOCK_REALTIME, &ts) == 0) {
+-        msg->headerextrav2.seconds[0]=(uint8_t)((ts.tv_sec >> 32) & 0xFF);
++        msg->headerextrav2.seconds[0]=(uint8_t)(((uint64_t)ts.tv_sec >> 32) & 0xFF);
+         msg->headerextrav2.seconds[1]=(uint8_t)((ts.tv_sec >> 24) & 0xFF);
+         msg->headerextrav2.seconds[2]=(uint8_t)((ts.tv_sec >> 16) & 0xFF);
+         msg->headerextrav2.seconds[3]=(uint8_t)((ts.tv_sec >> 8) & 0xFF);
+@@ -885,7 +885,7 @@ int dlt_daemon_client_send_control_message_v2(int sock,
+             msg->headerextrav2.nanoseconds = (uint32_t) ts.tv_nsec; /* value is long */
+         }
+     } else if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+-        msg->headerextrav2.seconds[0]=(uint8_t)((ts.tv_sec >> 32) & 0xFF);
++        msg->headerextrav2.seconds[0]=(uint8_t)(((uint64_t)ts.tv_sec >> 32) & 0xFF);
+         msg->headerextrav2.seconds[1]=(uint8_t)((ts.tv_sec >> 24) & 0xFF);
+         msg->headerextrav2.seconds[2]=(uint8_t)((ts.tv_sec >> 16) & 0xFF);
+         msg->headerextrav2.seconds[3]=(uint8_t)((ts.tv_sec >> 8) & 0xFF);
+diff --git a/src/lib/dlt_client.c b/src/lib/dlt_client.c
+--- a/src/lib/dlt_client.c
++++ b/src/lib/dlt_client.c
+@@ -1011,7 +1011,7 @@ DltReturnValue dlt_client_send_ctrl_msg_v2(DltClient *client, char *apid, char *
+         uint32_t tcnt = (uint32_t)(GetTickCount()); /* GetTickCount() in 10 ms resolution */
+         tcnt_seconds = tcnt / 100;
+         tcnt_ns = (tcnt - (tcnt*100)) * 10000;
+-        msg.headerextrav2.seconds[0]=(tcnt_seconds >> 32) & 0xFF;
++        msg.headerextrav2.seconds[0]=((uint64_t)tcnt_seconds >> 32) & 0xFF;
+         msg.headerextrav2.seconds[1]=(tcnt_seconds >> 24) & 0xFF;
+         msg.headerextrav2.seconds[2]=(tcnt_seconds >> 16) & 0xFF;
+         msg.headerextrav2.seconds[3]=(tcnt_seconds >> 8) & 0xFF;
+@@ -1020,7 +1020,7 @@ DltReturnValue dlt_client_send_ctrl_msg_v2(DltClient *client, char *apid, char *
+             msg.headerextrav2.nanoseconds = tcnt_ns;
+         }
+     }else{
+-        msg.headerextrav2.seconds[0]=(t >> 32) & 0xFF;
++        msg.headerextrav2.seconds[0]=((uint64_t)t >> 32) & 0xFF;
+         msg.headerextrav2.seconds[1]=(t >> 24) & 0xFF;
+         msg.headerextrav2.seconds[2]=(t >> 16) & 0xFF;
+         msg.headerextrav2.seconds[3]=(t >> 8) & 0xFF;
+@@ -1030,7 +1030,7 @@ DltReturnValue dlt_client_send_ctrl_msg_v2(DltClient *client, char *apid, char *
+     #else
+     struct timespec ts;
+     if(clock_gettime(CLOCK_REALTIME, &ts) == 0) {
+-        msg.headerextrav2.seconds[0]=(ts.tv_sec >> 32) & 0xFF;
++        msg.headerextrav2.seconds[0]=((uint64_t)ts.tv_sec >> 32) & 0xFF;
+         msg.headerextrav2.seconds[1]=(ts.tv_sec >> 24) & 0xFF;
+         msg.headerextrav2.seconds[2]=(ts.tv_sec >> 16) & 0xFF;
+         msg.headerextrav2.seconds[3]=(ts.tv_sec >> 8) & 0xFF;
+@@ -1039,7 +1039,7 @@ DltReturnValue dlt_client_send_ctrl_msg_v2(DltClient *client, char *apid, char *
+             msg.headerextrav2.nanoseconds = (uint32_t) ts.tv_nsec; /* value is long */
+         }
+     }else if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+-        msg.headerextrav2.seconds[0]=(ts.tv_sec >> 32) & 0xFF;
++        msg.headerextrav2.seconds[0]=((uint64_t)ts.tv_sec >> 32) & 0xFF;
+         msg.headerextrav2.seconds[1]=(ts.tv_sec >> 24) & 0xFF;
+         msg.headerextrav2.seconds[2]=(ts.tv_sec >> 16) & 0xFF;
+         msg.headerextrav2.seconds[3]=(ts.tv_sec >> 8) & 0xFF;
+diff --git a/src/lib/dlt_user.c b/src/lib/dlt_user.c
+--- a/src/lib/dlt_user.c
++++ b/src/lib/dlt_user.c
+@@ -5440,7 +5440,7 @@ DltReturnValue dlt_user_log_send_log_v2(DltContextData *log, const int mtype, Dl
+             uint32_t tcnt = (uint32_t)(GetTickCount()); /* GetTickCount() in 10 ms resolution */
+             tcnt_seconds = tcnt / 100;
+             tcnt_ns = (tcnt - (tcnt*100)) * 10000;
+-            msg.headerextrav2.seconds[0]=(tcnt_seconds >> 32) & 0xFF;
++            msg.headerextrav2.seconds[0]=((uint64_t)tcnt_seconds >> 32) & 0xFF;
+             msg.headerextrav2.seconds[1]=(tcnt_seconds >> 24) & 0xFF;
+             msg.headerextrav2.seconds[2]=(tcnt_seconds >> 16) & 0xFF;
+             msg.headerextrav2.seconds[3]=(tcnt_seconds >> 8) & 0xFF;
+@@ -5449,7 +5449,7 @@ DltReturnValue dlt_user_log_send_log_v2(DltContextData *log, const int mtype, Dl
+                 msg.headerextrav2.nanoseconds = tcnt_ns;
+             }
+         }else{
+-            msg.headerextrav2.seconds[0]=(t >> 32) & 0xFF;
++            msg.headerextrav2.seconds[0]=((uint64_t)t >> 32) & 0xFF;
+             msg.headerextrav2.seconds[1]=(t >> 24) & 0xFF;
+             msg.headerextrav2.seconds[2]=(t >> 16) & 0xFF;
+             msg.headerextrav2.seconds[3]=(t >> 8) & 0xFF;
+@@ -5459,7 +5459,7 @@ DltReturnValue dlt_user_log_send_log_v2(DltContextData *log, const int mtype, Dl
+     #else
+         struct timespec ts;
+         if(clock_gettime(CLOCK_REALTIME, &ts) == 0) {
+-            msg.headerextrav2.seconds[0]=(uint8_t)((ts.tv_sec >> 32) & 0xFF);
++            msg.headerextrav2.seconds[0]=(uint8_t)(((uint64_t)ts.tv_sec >> 32) & 0xFF);
+             msg.headerextrav2.seconds[1]=(uint8_t)((ts.tv_sec >> 24) & 0xFF);
+             msg.headerextrav2.seconds[2]=(uint8_t)((ts.tv_sec >> 16) & 0xFF);
+             msg.headerextrav2.seconds[3]=(uint8_t)((ts.tv_sec >> 8) & 0xFF);
+@@ -5468,7 +5468,7 @@ DltReturnValue dlt_user_log_send_log_v2(DltContextData *log, const int mtype, Dl
+                 msg.headerextrav2.nanoseconds = (uint32_t) ts.tv_nsec; /* value is long */
+             }
+         }else if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+-            msg.headerextrav2.seconds[0]=(uint8_t)((ts.tv_sec >> 32) & 0xFF);
++            msg.headerextrav2.seconds[0]=(uint8_t)(((uint64_t)ts.tv_sec >> 32) & 0xFF);
+             msg.headerextrav2.seconds[1]=(uint8_t)((ts.tv_sec >> 24) & 0xFF);
+             msg.headerextrav2.seconds[2]=(uint8_t)((ts.tv_sec >> 16) & 0xFF);
+             msg.headerextrav2.seconds[3]=(uint8_t)((ts.tv_sec >> 8) & 0xFF);
+diff --git a/src/shared/dlt_common.c b/src/shared/dlt_common.c
+--- a/src/shared/dlt_common.c
++++ b/src/shared/dlt_common.c
+@@ -3609,7 +3609,7 @@ DltReturnValue dlt_set_storageheader_v2(DltStorageHeaderV2 *storageheader, uint8
+     /* get time of day */
+ #if defined(_MSC_VER)
+     time_t t = time(NULL);
+-    storageheader->seconds[0]=(t >> 32) & 0xFF;
++    storageheader->seconds[0]=((uint64_t)t >> 32) & 0xFF;
+     storageheader->seconds[1]=(t >> 24) & 0xFF;
+     storageheader->seconds[2]=(t >> 16) & 0xFF;
+     storageheader->seconds[3]=(t >> 8) & 0xFF;
+@@ -3633,7 +3633,7 @@ DltReturnValue dlt_set_storageheader_v2(DltStorageHeaderV2 *storageheader, uint8
+ #if defined(_MSC_VER)
+     storageheader->nanoseconds = 0;
+ #else
+-    storageheader->seconds[0]=(uint8_t)((ts.tv_sec >> 32) & 0xFF);
++    storageheader->seconds[0]=(uint8_t)(((uint64_t)ts.tv_sec >> 32) & 0xFF);
+     storageheader->seconds[1]=(uint8_t)((ts.tv_sec >> 24) & 0xFF);
+     storageheader->seconds[2]=(uint8_t)((ts.tv_sec >> 16) & 0xFF);
+     storageheader->seconds[3]=(uint8_t)((ts.tv_sec >> 8) & 0xFF);

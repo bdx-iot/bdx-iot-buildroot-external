@@ -1,0 +1,30 @@
+cmake: make -Werror optional
+
+-Werror combined with -Wconversion turns every 32-bit portability
+warning (32-bit time_t, long, size_t) into a build failure, while the
+code is mostly exercised on 64-bit hosts. Add a WITH_DLT_WERROR option,
+ON by default to keep the current behaviour, so that distributions can
+build without it.
+
+Upstream-Status: Pending
+Signed-off-by: Joris OFFOUGA <offougajoris@gmail.com>
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -49,6 +49,7 @@ include(CMakeDependentOption)
+ 
+ # Set of indiviual options
+ option(BUILD_SHARED_LIBS "Set to OFF to build static libraries"                                                      ON)
++option(WITH_DLT_WERROR "Set to OFF to not treat compiler warnings as errors"                                       ON)
+ option(WITH_SYSTEMD "Set to ON to create unit files and systemd check on dlt-daemon startup"                         OFF)
+ option(WITH_SYSTEMD_WATCHDOG "Set to ON to use the systemd watchdog in dlt-daemon"                                   OFF)
+ option(WITH_SYSTEMD_WATCHDOG_ENFORCE_MSG_RX "Set to ON to trigger systemd watchdog of dlt-daemon only
+@@ -253,7 +254,7 @@ add_compile_options(
+     -pedantic
+     -Wno-variadic-macros
+     -Wno-strict-aliasing
+-    -Werror
++    $<$<BOOL:${WITH_DLT_WERROR}>:-Werror>
+     -Wfatal-errors
+     -Wconversion
+     -Wshadow
