@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (C) Joris Offouga <offougajoris@gmail.com>
+ *
+ * Extra nodes appended to U-Boot's upstream nxp/imx/imx7s-warp.dts through
+ * CONFIG_DEVICE_TREE_INCLUDES (see uboot.fragment).
+ */
+
+/ {
+	leds {
+		compatible = "gpio-leds";
+		/* mcp23008 is on i2c3, owned by OP-TEE */
+		status = "disabled";
+
+		system {
+			label = "boot";
+			gpios = <&mcp23008 0 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+	};
+};
+
+/*
+ * IO board I2C bus: owned by OP-TEE, which also drives the MCP23008 RESET#
+ * (GPIO7_IO4). U-Boot runs after OP-TEE and must not touch it.
+ */
+&i2c3 {
+	status = "disabled";
+
+	mcp23008: mcp23008@20 {
+		compatible = "microchip,mcp23008";
+		gpio-controller;
+		#gpio-cells = <2>;
+		reg = <0x20>;
+	};
+
+	lm75a@4b {
+		compatible = "national,lm75a";
+		reg = <0x4b>;
+	};
+
+	rtc@6f {
+		compatible = "microchip,mcp7940x";
+		reg = <0x6f>;
+	};
+};
+
+&gpio7 {
+	rst_mikrobus {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+};

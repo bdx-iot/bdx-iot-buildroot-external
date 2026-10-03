@@ -1,1 +1,2 @@
 source "$BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH/package/dlt-daemon/Config.in"
+source "$BR2_EXTERNAL_BDXIOT_EXTERNAL_PATH/package/optee-i2c-test/Config.in"

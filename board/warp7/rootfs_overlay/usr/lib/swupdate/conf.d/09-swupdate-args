@@ -1,0 +1,9 @@
+rootfs=`swupdate -g`
+
+if [ $rootfs == '/dev/mmcblk2p2' ];then
+	selection="stable,rootfsB"
+else
+	selection="stable,rootfsA"
+fi
+
+SWUPDATE_ARGS="-H imx7s-warp:1.0 -e ${selection} -f /etc/swupdate.cfg"

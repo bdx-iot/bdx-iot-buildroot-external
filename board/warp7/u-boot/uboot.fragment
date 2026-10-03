@@ -1,0 +1,53 @@
+# Merged into warp7_bl33_defconfig: U-Boot runs as TF-A BL33 (non-secure).
+# The environment sits between bl2.bin.imx (1K) and the FIP (1M).
+# TF-A/OP-TEE already did the secure low-level init (AIPS-TZ, CSU, SMP):
+# writing those registers from the normal world aborts before the console.
+CONFIG_SKIP_LOWLEVEL_INIT=y
+# OP-TEE is the PSCI provider; U-Boot must not switch to non-secure itself
+# CONFIG_ARMV7_NONSEC is not set
+# arch-mx7/clock.h picks the UART clock root from CONS_INDEX, 0-based:
+# 1 (default) reads UART2's root, which TF-A gated off -> 0 Hz -> bad baud
+CONFIG_CONS_INDEX=0
+# OP-TEE owns the last 32 MiB of DDR (0x9e000000, TZASC protected): keep
+# U-Boot from relocating into it (warp7.c dram_init() subtracts this size)
+CONFIG_OPTEE_LIB=y
+CONFIG_OPTEE_TZDRAM_SIZE=0x2000000
+# Bring-up: early prints on UART1 (TF-A sets its root to the 24 MHz OSC)
+# and stop on panic instead of resetting. Remove once U-Boot boots.
+CONFIG_DEBUG_UART=y
+CONFIG_DEBUG_UART_MXC=y
+CONFIG_DEBUG_UART_BASE=0x30860000
+CONFIG_DEBUG_UART_CLOCK=24000000
+CONFIG_DEBUG_UART_ANNOUNCE=y
+CONFIG_PANIC_HANG=y
+# "reset" through WDOG1 (wdt-reboot node of imx7s-warp-u-boot.dtsi); without
+# it reset_cpu() is the empty weak default. U-Boot also starts WDOG1
+# (128 s), taken over by systemd (board/common 10-watchdog.conf).
+# CONFIG_WATCHDOG makes U-Boot service it (cyclic): without it, any stay in
+# U-Boot over 128 s (prompt, long "ums" flashing) ends in a reset.
+CONFIG_WATCHDOG=y
+CONFIG_WDT=y
+CONFIG_IMX_WATCHDOG=y
+CONFIG_SYSRESET=y
+CONFIG_SYSRESET_WATCHDOG=y
+# boot.scr is a legacy "mkimage -T script" image; FIT_SIGNATURE (set by
+# warp7_bl33_defconfig) disables legacy images by default
+CONFIG_LEGACY_IMAGE_FORMAT=y
+CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
+CONFIG_ENV_OFFSET_REDUND=0xA0000
+CONFIG_BOOTCOUNT_LIMIT=y
+CONFIG_BOOTCOUNT_ENV=y
+# Board nodes from board/warp7/u-boot/imx7s-warp-extra.dtsi, copied into
+# arch/arm/dts/ by BR2_TARGET_UBOOT_CUSTOM_DTS_PATH
+CONFIG_DEVICE_TREE_INCLUDES="imx7s-warp-extra.dtsi"
+CONFIG_GPIO_HOG=y
+CONFIG_MCP230XX_GPIO=y
+# mcp230xx_gpio.c calls dm_spi_*() unconditionally (no Kconfig dependency)
+CONFIG_SPI=y
+CONFIG_DM_SPI=y
+CONFIG_LED=y
+CONFIG_LED_GPIO=y
+CONFIG_DM_RTC=y
+CONFIG_RTC_DS1307=y
+CONFIG_CMD_I2C=y
+CONFIG_CMD_RTC=y

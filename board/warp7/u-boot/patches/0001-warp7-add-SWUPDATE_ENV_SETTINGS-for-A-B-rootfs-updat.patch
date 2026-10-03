@@ -1,0 +1,47 @@
+From 1bba889be137ce08e53c05f70296c7b8db08d1f6 Mon Sep 17 00:00:00 2001
+From: Joris OFFOUGA <offougajoris@gmail.com>
+Date: Thu, 1 Oct 2026 23:40:33 +0200
+Subject: [PATCH] warp7: add SWUPDATE_ENV_SETTINGS for A/B rootfs update
+
+Signed-off-by: Joris OFFOUGA <offougajoris@gmail.com>
+---
+ include/configs/warp7.h | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/include/configs/warp7.h b/include/configs/warp7.h
+index a5278d1..bbdbcf0 100644
+--- a/include/configs/warp7.h
++++ b/include/configs/warp7.h
+@@ -26,8 +26,29 @@
+ #define BOOT_SCR_STRING "source ${bootscriptaddr}\0"
+ #endif
+ 
++/* A/B rootfs (p2/p3) switch used by SWUpdate, see CONFIG_BOOTCOUNT_LIMIT */
++#define SWUPDATE_ENV_SETTINGS \
++	"bootlimit=1\0" \
++	"bootcount=0\0" \
++	"upgrade_available=0\0" \
++	\
++	"swu_altbootcmd=" \
++	"if test ${rootpart} = 2; then " \
++		"echo Bootcount limit reached. Reverting to B; " \
++		"setenv rootpart 3; " \
++	"else " \
++		"echo Bootcount limit reached. Reverting to A; " \
++		"setenv rootpart 2; " \
++	"fi; " \
++	"setenv upgrade_available 0; " \
++	"saveenv\0" \
++	\
++	"altbootcmd=run swu_altbootcmd; " \
++	"run bootcmd\0"
++
+ #define CFG_EXTRA_ENV_SETTINGS \
+ 	CFG_DFU_ENV_SETTINGS \
++	SWUPDATE_ENV_SETTINGS \
+ 	"script=boot.scr\0" \
+ 	"bootscr_fitimage_name=bootscr\0" \
+ 	"script_signed=boot.scr.imx-signed\0" \
+-- 
+2.53.0
+

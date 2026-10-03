@@ -1,9 +1,10 @@
 #!/bin/sh
 # Grow the last (data) partition to the end of the disk; no-op once done.
+# Usage: growpart-data <disk> <partition number>, e.g. growpart-data /dev/mmcblk1 4
 set -e
 
-DISK=/dev/mmcblk1
-PART_NUM=4
+DISK="${1:?missing disk}"
+PART_NUM="${2:?missing partition number}"
 
 disk=$(basename "${DISK}")
 part="${disk}p${PART_NUM}"
