@@ -312,7 +312,11 @@
 	no-1-8-v;
 	non-removable;
 	vmmc-supply = <&reg_brcm>;
-	status = "okay";
+	/*
+	 * Wi-Fi (BCM43430) disabled: its power-up when brcmfmac loads resets
+	 * the board. Keeping usdhc1 off leaves reg_brcm, the chip supply, off.
+	 */
+	status = "disabled";
 };
 
 &usdhc3 {
@@ -530,6 +534,9 @@
 
 	leds {
 		compatible = "gpio-leds";
+		/* mcp23008 is on i2c3, owned by OP-TEE */
+		status = "disabled";
+
 		system {
 			label = "boot";
 			gpios = <&mcp23008 0 GPIO_ACTIVE_LOW>;
@@ -553,7 +560,13 @@
 	};
 };
 
+/*
+ * IO board I2C bus: owned by OP-TEE (imx7s-warp-optee.dts in OP-TEE), the
+ * devices are reached through the i2c_devices PTA and /dev/rtc via rtc-optee.
+ */
 &i2c3 {
+	status = "disabled";
+
 	mcp23008: mcp23008@20 {
 		compatible = "microchip,mcp23008";
 		gpio-controller;

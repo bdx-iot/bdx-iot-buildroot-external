@@ -9,6 +9,8 @@
 / {
 	leds {
 		compatible = "gpio-leds";
+		/* mcp23008 is on i2c3, owned by OP-TEE */
+		status = "disabled";
 
 		system {
 			label = "boot";
@@ -18,7 +20,13 @@
 	};
 };
 
+/*
+ * IO board I2C bus: owned by OP-TEE, which also drives the MCP23008 RESET#
+ * (GPIO7_IO4). U-Boot runs after OP-TEE and must not touch it.
+ */
 &i2c3 {
+	status = "disabled";
+
 	mcp23008: mcp23008@20 {
 		compatible = "microchip,mcp23008";
 		gpio-controller;

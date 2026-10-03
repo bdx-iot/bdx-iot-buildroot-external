@@ -1,0 +1,11 @@
+config BR2_PACKAGE_OPTEE_I2C_TEST
+	bool "optee-i2c-test"
+	depends on BR2_TARGET_OPTEE_OS
+	select BR2_PACKAGE_OPTEE_CLIENT
+	help
+	  Test TA and command line client for the OP-TEE I2C device
+	  drivers (LM75, MCP23008, MCP7940x, AT24, PCF8591) exposed by
+	  the i2c_devices PTA (CFG_I2C_DEVICES_PTA=y).
+
+	  The TA lets any normal world client reach the secure I2C
+	  devices: development images only.

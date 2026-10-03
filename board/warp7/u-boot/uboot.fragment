@@ -23,6 +23,9 @@ CONFIG_PANIC_HANG=y
 # "reset" through WDOG1 (wdt-reboot node of imx7s-warp-u-boot.dtsi); without
 # it reset_cpu() is the empty weak default. U-Boot also starts WDOG1
 # (128 s), taken over by systemd (board/common 10-watchdog.conf).
+# CONFIG_WATCHDOG makes U-Boot service it (cyclic): without it, any stay in
+# U-Boot over 128 s (prompt, long "ums" flashing) ends in a reset.
+CONFIG_WATCHDOG=y
 CONFIG_WDT=y
 CONFIG_IMX_WATCHDOG=y
 CONFIG_SYSRESET=y
