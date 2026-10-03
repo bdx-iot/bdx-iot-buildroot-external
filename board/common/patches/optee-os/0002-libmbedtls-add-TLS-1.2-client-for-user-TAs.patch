@@ -1,0 +1,108 @@
+From 95e1af2b0df2b62d3b57ad501836fec862c0f024 Mon Sep 17 00:00:00 2001
+From: Joris OFFOUGA <offougajoris@icloud.com>
+Date: Sun, 4 Oct 2026 01:01:25 +0200
+Subject: [PATCH] libmbedtls: add TLS 1.2 client for user TAs
+
+Add CFG_TA_MBEDTLS_TLS_CLIENT (default y) to build the TA libmbedtls
+with the TLS 1.2 client, ECDHE key exchange only, so that a TA can run
+TLS over the GP TEE sockets without compiling mbedTLS sources itself.
+
+The TLS source list was never used and missed ssl_msg.c and
+ssl_tls13_keys.c: add them.
+
+Also export pk_wrap.h in the TA dev kit, as
+include/mbedtls_private/pk_wrap.h. It defines mbedtls_pk_info_t, needed
+by a TA whose TLS client key is held elsewhere (e.g. by another TA) and
+is plugged in as a custom mbedtls_pk_context.
+
+Signed-off-by: Joris OFFOUGA <offougajoris@icloud.com>
+---
+ lib/libmbedtls/include/mbedtls_config_uta.h | 11 +++++++++++
+ lib/libmbedtls/sub.mk                       |  2 ++
+ mk/config.mk                                |  4 ++++
+ ta/ta.mk                                    |  8 ++++++++
+ 4 files changed, 25 insertions(+)
+
+diff --git a/lib/libmbedtls/include/mbedtls_config_uta.h b/lib/libmbedtls/include/mbedtls_config_uta.h
+index 193db8b36..9e7810f83 100644
+--- a/lib/libmbedtls/include/mbedtls_config_uta.h
++++ b/lib/libmbedtls/include/mbedtls_config_uta.h
+@@ -68,4 +68,15 @@
+ #define MBEDTLS_PEM_PARSE_C
+ #define MBEDTLS_PEM_WRITE_C
+ 
++#ifdef CFG_TA_MBEDTLS_TLS_CLIENT
++#define MBEDTLS_SSL_TLS_C
++#define MBEDTLS_SSL_CLI_C
++#define MBEDTLS_SSL_PROTO_TLS1_2
++#define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
++#define MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
++#define MBEDTLS_SSL_SERVER_NAME_INDICATION
++#define MBEDTLS_SSL_ENCRYPT_THEN_MAC
++#define MBEDTLS_SSL_EXTENDED_MASTER_SECRET
++#endif
++
+ #endif /* __MBEDTLS_CONFIG_UTA_H */
+diff --git a/lib/libmbedtls/sub.mk b/lib/libmbedtls/sub.mk
+index a0878a5b6..a964b8873 100644
+--- a/lib/libmbedtls/sub.mk
++++ b/lib/libmbedtls/sub.mk
+@@ -125,12 +125,14 @@ SRCS_TLS += ssl_client.c
+ SRCS_TLS += ssl_ciphersuites.c
+ SRCS_TLS += ssl_cookie.c
+ SRCS_TLS += ssl_debug_helpers_generated.c
++SRCS_TLS += ssl_msg.c
+ SRCS_TLS += ssl_ticket.c
+ SRCS_TLS += ssl_tls.c
+ SRCS_TLS += ssl_tls12_client.c
+ SRCS_TLS += ssl_tls12_server.c
+ SRCS_TLS += ssl_tls13_client.c
+ SRCS_TLS += ssl_tls13_generic.c
++SRCS_TLS += ssl_tls13_keys.c
+ SRCS_TLS += ssl_tls13_server.c
+ 
+ # OBJS_PSA
+diff --git a/mk/config.mk b/mk/config.mk
+index 70a46e00f..c1f46eae5 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -806,6 +806,10 @@ $(call force,CFG_TA_MBEDTLS,y)
+ # need to be called to test anything
+ CFG_TA_MBEDTLS_SELF_TEST ?= y
+ 
++# Compile the TA library mbedTLS with the TLS 1.2 client (ECDHE key exchange
++# only), so that TAs can open TLS connections over the GP TEE sockets
++CFG_TA_MBEDTLS_TLS_CLIENT ?= y
++
+ # By default use tomcrypt as the main crypto lib providing an implementation
+ # for the API in <crypto/crypto.h>
+ # CFG_CRYPTOLIB_NAME is used as libname and
+diff --git a/ta/ta.mk b/ta/ta.mk
+index 6bdf8f774..6fc7dcb35 100644
+--- a/ta/ta.mk
++++ b/ta/ta.mk
+@@ -38,6 +38,7 @@ ta-mk-file-export-vars-$(sm) += CFG_SECURE_DATA_PATH
+ ta-mk-file-export-vars-$(sm) += CFG_TA_MBEDTLS_SELF_TEST
+ ta-mk-file-export-vars-$(sm) += CFG_TA_MBEDTLS
+ ta-mk-file-export-vars-$(sm) += CFG_TA_MBEDTLS_MPI
++ta-mk-file-export-vars-$(sm) += CFG_TA_MBEDTLS_TLS_CLIENT
+ ta-mk-file-export-vars-$(sm) += CFG_SYSTEM_PTA
+ ta-mk-file-export-vars-$(sm) += CFG_FTRACE_SUPPORT
+ ta-mk-file-export-vars-$(sm) += CFG_UNWIND
+@@ -186,6 +187,13 @@ endef
+ $(foreach d, $(incdirs$(sm)), \
+ 	$(eval $(call copy-incdir,$(d),$(out-dir)/export-$(sm)/include,include)))
+ 
++# mbedTLS internal header defining mbedtls_pk_info_t, for TAs providing a
++# custom key (e.g. a TLS client key held by another TA)
++ifeq ($(CFG_TA_MBEDTLS_TLS_CLIENT),y)
++$(eval $(call copy-file, lib/libmbedtls/mbedtls/library/pk_wrap.h, \
++	$(out-dir)/export-$(sm)/include/mbedtls_private,include))
++endif
++
+ # Copy the .h files needed by host
+ $(foreach d, $(incdirs-host), \
+ 	$(eval $(call copy-incdir, $(d), $(out-dir)/export-$(sm)/host_include)))
+-- 
+2.53.0
+
