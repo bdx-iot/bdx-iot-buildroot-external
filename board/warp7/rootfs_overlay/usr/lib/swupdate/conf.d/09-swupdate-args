@@ -6,4 +6,14 @@ else
 	selection="stable,rootfsA"
 fi
 
+# BL2 is A/B in the eMMC boot partitions: sw-description writes it through
+# /dev/mmcblk2boot-standby, the boot partition not in use (swupdate -E
+# prints 0 for boot0, 1 for boot1), then switches to it. Decided when
+# SWUpdate starts, like the rootfs: reboot between two updates.
+if [ "`swupdate -E /dev/mmcblk2`" = 0 ]; then
+	ln -sf mmcblk2boot1 /dev/mmcblk2boot-standby
+else
+	ln -sf mmcblk2boot0 /dev/mmcblk2boot-standby
+fi
+
 SWUPDATE_ARGS="-H imx7s-warp:1.0 -e ${selection} -f /etc/swupdate.cfg"

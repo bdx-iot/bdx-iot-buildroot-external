@@ -11,7 +11,7 @@ make
 
 ```
 BootROM -> TF-A BL2 (bl2.bin.imx) -> OP-TEE (BL32) -> U-Boot (BL33) -> Linux
-           eMMC user area @ 1K      \------ fip.bin @ 1M ------/        rootfs A/B
+           eMMC boot0/boot1 @ 1K    \- fip.bin, user area @ 1M -/      rootfs A/B
 ```
 
 | Stage  | Version / config                                    | Runs in    |
@@ -49,12 +49,15 @@ Linux with a `reserved-memory` node in `linux/dts/nxp/imx/imx7s-warp-optee-m4.dt
 
 ## eMMC layout
 
-U-Boot: `mmc 0`. Linux: `/dev/mmcblk2` (usdhc3, `mmc2` alias). The BootROM
-must boot from the **user area** (`mmc partconf 0 1 7 0`, see below).
+U-Boot: `mmc 0`. Linux: `/dev/mmcblk2` (usdhc3, `mmc2` alias).
 
-| Offset / partition | Content                                        |
+BL2 (`bl2.bin.imx`, TF-A BL2 + i.MX header) is A/B in the eMMC **boot
+partitions**, at 1 KiB of boot0 and boot1 (`/dev/mmcblk2boot0`/`boot1`). The
+BootROM boots from the one selected by `mmc partconf 0 1 <1|2> 0` (EXT_CSD
+PARTITION_CONFIG). BL2 then always reads the FIP from the user area:
+
+| Offset / partition | Content (user area)                            |
 |--------------------|------------------------------------------------|
-| 1 KiB              | `bl2.bin.imx` (TF-A BL2 + i.MX header)         |
 | 512 KiB / 640 KiB  | U-Boot environment (redundant, 8 KiB each)     |
 | 1 MiB (max 1 MiB)  | `fip.bin` (OP-TEE + U-Boot), read by BL2       |
 | p1 @ 8 MiB, 32 MiB | VFAT: `boot.scr`                               |
@@ -80,7 +83,7 @@ bigger. Current size: ~0.9 MiB (U-Boot ~510 KiB + OP-TEE ~400 KiB).
 | `u-boot/imx7s-warp-extra.dtsi` | U-Boot DT nodes, appended with `CONFIG_DEVICE_TREE_INCLUDES` |
 | `u-boot/patches/0001-*` | adds the SWUpdate A/B and bootcount variables to `warp7.h` |
 | `u-boot/boot.cmd` | `boot.scr`: loads kernel + dtb from `/boot` of the active rootfs |
-| `swupdate/sw-description` | A/B update, also rewrites `bl2.bin.imx` and `fip.bin` |
+| `swupdate/sw-description` | A/B update: rootfs, `boot.scr`, `fip.bin`, A/B BL2 in the boot partitions |
 | `rootfs_overlay/` | `fstab`, `fw_env.config`, `hwrevision`, growpart, SWUpdate args, `can0` |
 | `rootfs_overlay/etc/modules-load.d/g_ether.conf`, `etc/modprobe.d/g_ether.conf` | load the USB Ethernet gadget at boot with fixed MACs (WaRP7 `usb0` = 02:00:00:00:77:01, host interface `enx020000007702`) |
 | `rootfs_overlay/etc/systemd/network/10-usb0.network` | `usb0` = 10.0.0.1/24 with a DHCP server for the host |
@@ -125,11 +128,9 @@ make arm-trusted-firmware-rebuild all                         # TF-A change
 `uboot-dirclean` is needed after editing `uboot.fragment`, a patch or the
 dtsi. `all` reruns `post-image.sh` (new `bl2.bin.imx`, `sdcard.img`, `.swu`).
 
-## First flash (from the stock U-Boot)
+## Flashing
 
-The stock U-Boot lives in the eMMC **boot0** partition and the BootROM boots
-from it (`mmc partconf 0 1 1 0`). UMS only exposes the **user area**, so the
-new chain is written there, and the boot partition is switched last.
+`sdcard.img` goes to the eMMC user area; BL2 goes to a boot partition.
 
 1. On the WaRP7 U-Boot console, export the eMMC user area over USB:
    ```
@@ -141,13 +142,24 @@ new chain is written there, and the boot partition is switched last.
    sudo dd if=output/images/sdcard.img of=/dev/sdX bs=1M conv=fsync status=progress
    sync
    ```
-3. Back on the console, Ctrl-C to stop UMS, then boot from the user area:
+3. Back on the console, Ctrl-C to stop UMS, write BL2 (copied on the VFAT
+   partition) into boot0, check it, then boot from boot0:
    ```
-   => mmc partconf 0 1 7 0
+   => load mmc 0:1 ${loadaddr} bl2.bin.imx
+   => setexpr cnt ${filesize} + 1ff; setexpr cnt ${cnt} / 200
+   => mmc dev 0 1
+   => mmc write ${loadaddr} 2 ${cnt}
+   => mmc read 0x84000000 2 ${cnt}
+   => cmp.b ${loadaddr} 0x84000000 ${filesize}
+   => mmc dev 0 0
+   => mmc partconf 0 1 1 0
    => reset
    ```
+   `mmc dev 0 <hwpart>`: `0` = user area, `1` = boot0, `2` = boot1.
    `mmc partconf <dev> <boot_ack> <boot_partition> <access>`: boot partition
-   `7` = user area, `1` = boot0 (stock U-Boot), `0` = disabled.
+   `1` = boot0, `2` = boot1. Always run it **last**, after `mmc dev 0 0`: its
+   `access` argument switches the partition the eMMC reads and writes
+   without U-Boot knowing, so a `mmc write` after it lands in the user area.
 4. On the new U-Boot, load the default environment once, then **reset**:
    ```
    => env default -a
@@ -172,31 +184,33 @@ Expected console: `NOTICE: BL2: v2.12...`, the OP-TEE banner, then U-Boot.
 After the rebuild above, write only what changed. U-Boot `mmc write` takes
 hexadecimal block numbers (512 bytes): `2` = 1 KiB, `800` = 1 MiB.
 
+**With SWUpdate** (preferred): `warp7-<version>.swu` writes the inactive
+rootfs, `boot.scr`, `fip.bin`, and BL2 into the boot partition the BootROM
+does not use, then switches to it (`emmc_boot_toggle`) once everything is
+installed. A power loss while BL2 is written leaves the previous BL2 booting.
+`fip.bin` has a single copy in the user area: a power loss while it is
+written leaves the board unbootable (see Recovery).
+
 **From the U-Boot console**, with the file copied to the VFAT partition (p1):
 ```
-=> mmc dev 0 0
 => load mmc 0:1 ${loadaddr} fip.bin
-=> setexpr cnt ${filesize} + 1ff
-=> setexpr cnt ${cnt} / 200
+=> setexpr cnt ${filesize} + 1ff; setexpr cnt ${cnt} / 200
+=> mmc dev 0 0
 => mmc write ${loadaddr} 800 ${cnt}
 ```
-For TF-A, the same with `bl2.bin.imx` and `mmc write ${loadaddr} 2 ${cnt}`.
+For BL2, write `bl2.bin.imx` at block `2` of the boot partition not in use,
+as in Flashing step 3 (`mmc dev 0 2` and `mmc partconf 0 1 2 0` for boot1).
 
-**From the host over UMS** (`ums 0 mmc 0` on the console):
+**From Linux on the board** (`swupdate -E /dev/mmcblk2` prints the boot
+partition in use: `0` = boot0, `1` = boot1):
 ```
-sudo dd if=fip.bin     of=/dev/sdX bs=512 seek=2048 conv=notrunc,fsync
-sudo dd if=bl2.bin.imx of=/dev/sdX bs=512 seek=2    conv=notrunc,fsync
+dd if=fip.bin of=/dev/mmcblk2 bs=1k seek=1024 conv=fsync
+echo 0 > /sys/block/mmcblk2boot1/force_ro      # boot1 if boot0 is in use
+dd if=bl2.bin.imx of=/dev/mmcblk2boot1 bs=1k seek=1 conv=fsync
+echo 1 > /sys/block/mmcblk2boot1/force_ro
 ```
-
-**From Linux on the board:**
-```
-dd if=fip.bin     of=/dev/mmcblk2 bs=1k seek=1024 conv=fsync
-dd if=bl2.bin.imx of=/dev/mmcblk2 bs=1k seek=1    conv=fsync
-```
-
-**With SWUpdate**: `warp7-<version>.swu` writes the inactive rootfs, `boot.scr`,
-`bl2.bin.imx` and `fip.bin`. Only the rootfs is A/B: a power loss while the
-bootloader is written leaves the board unbootable.
+then switch with `mmc partconf 0 1 2 0` in U-Boot (or `mmc bootpart enable 2
+1 /dev/mmcblk2` with mmc-utils).
 
 If the default environment changed (new variables in the U-Boot patch), run
 `env default -a; saveenv; reset` after the update: a saved environment wins over the
@@ -211,19 +225,27 @@ built-in defaults.
   does not reach `01-commit-upgrade` within `bootlimit` (1) reboot,
   `altbootcmd` switches back to the other rootfs.
 - `09-swupdate-args` selects `stable,rootfsA` or `stable,rootfsB` from the
-  running root; hardware compatibility is `imx7s-warp:1.0` (`/etc/hwrevision`).
+  running root, and links `/dev/mmcblk2boot-standby` to the boot partition
+  not in use (`swupdate -E`). `sw-description` writes BL2 there, then
+  `emmc_boot_toggle` switches to it after a successful install. Both are
+  decided when SWUpdate starts: reboot between two updates. Hardware
+  compatibility is `imx7s-warp:1.0` (`/etc/hwrevision`).
 - `fw_env.config`: `/dev/mmcblk2` at 0x80000 and 0xA0000, 0x2000 bytes each.
 
 ## Recovery
 
-BL2 always reads the FIP from the user area, so a broken FIP cannot be fixed
-from the board itself. Keep a U-Boot built from upstream `warp7_defconfig`
-(without TF-A) and `uuu` ready:
+- **Broken BL2** (new BL2 does not start): switch back to the other boot
+  partition from a U-Boot (below) with `mmc partconf 0 1 <1|2> 0`.
+- **Broken FIP**: BL2 always reads it from the user area, so it cannot be
+  fixed from the board itself.
+
+Keep a U-Boot built from upstream `warp7_defconfig` (without TF-A) and `uuu`
+ready:
 
 1. Set the boot switches to USB serial download, then
    `uuu SDP: boot -f u-boot.imx`.
-2. On that U-Boot: rewrite the images with `ums 0 mmc 0` as above, or go back
-   to the stock U-Boot still in boot0 with `mmc partconf 0 1 1 0`.
+2. On that U-Boot: rewrite the images as in Flashing, or select the other
+   boot partition.
 3. Set the boot switches back to eMMC boot.
 
 ## Known messages

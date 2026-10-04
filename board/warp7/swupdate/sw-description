@@ -5,6 +5,11 @@ software =
 
 	imx7s-warp = {
 		hardware-compatibility: [ "1.0" ];
+		/*
+		 * A/B BL2 in the eMMC boot partitions: written to the one not in use
+		 * (/dev/mmcblk2boot-standby, see 09-swupdate-args), then made the boot
+		 * partition once the whole update is installed.
+		 */
 		stable = {
 			rootfsA : {
 				images: (
@@ -17,7 +22,7 @@ software =
 					},
 					{
 						filename = "bl2.bin.imx";
-						device = "/dev/mmcblk2";
+						device = "/dev/mmcblk2boot-standby";
 						type = "raw";
 						offset = "1K";
 						installed-directly = true;
@@ -38,6 +43,12 @@ software =
 						filesystem = "vfat";
 						type = "rawfile";
 						properties = { atomic-install = "true"; };
+					}
+				);
+				scripts: (
+					{
+						type = "emmc_boot_toggle";
+						device = "/dev/mmcblk2";
 					}
 				);
 				bootenv: (
@@ -57,7 +68,7 @@ software =
 					},
 					{
 						filename = "bl2.bin.imx";
-						device = "/dev/mmcblk2";
+						device = "/dev/mmcblk2boot-standby";
 						type = "raw";
 						offset = "1K";
 						installed-directly = true;
@@ -78,6 +89,12 @@ software =
 						filesystem = "vfat";
 						type = "rawfile";
 						properties = { atomic-install = "true"; };
+					}
+				);
+				scripts: (
+					{
+						type = "emmc_boot_toggle";
+						device = "/dev/mmcblk2";
 					}
 				);
 				bootenv: (
