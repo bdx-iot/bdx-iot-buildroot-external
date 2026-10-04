@@ -1,151 +1,51 @@
 # bdx-iot-external
 
-Buildroot external tree for the Polyhex Debix Model A (i.MX8M Plus) and
-WaRP7 (i.MX7S) boards.
+Buildroot external tree for two boards with OP-TEE, A/B updates (SWUpdate)
+and secure peripherals.
 
-## Shared files: `board/common`
-
-Both defconfigs list `board/common/rootfs_overlay` first in
-`BR2_ROOTFS_OVERLAY`, then the board overlay; a file present in both is taken
-from the board overlay. Also shared: the busybox and WiFi/Bluetooth kernel
-fragments, the OP-TEE supplicant service, `growpart-data` (called with the
-disk and partition number by each board's `growpart-data.service`), the
-package patches (`board/common/patches`, `BR2_GLOBAL_PATCH_DIR`) and the
-SWUpdate configuration (`board/common/swupdate`, `source` is a git
-submodule).
-
-## Board support: `debix-model-a`
-
-Defconfig: `configs/imx8mp_debix_model_a_defconfig`
-
-- **Boot chain**: SPL → ATF (BL31) → OP-TEE (BL32) → U-Boot (BL33) → Linux, via a
-  single FIT image (`imx8-boot-sd.bin`) built by NXP's `imx-mkimage`.
-- **Boot media**: single bootable ext4 partition (rootfs + `/boot/Image` +
-  `/boot/*.dtb` + `/boot/extlinux/extlinux.conf`); `imx-boot` lives outside the
-  partition table at offset 32K. Custom `genimage.cfg`/`post-image.sh` replace
-  NXP's default two-partition (FAT+ext2) layout.
-- **Kernel devicetree**: custom board dts at
-  `board/debix-model-a/linux/dts/freescale/imx8mp-debix-model-a.dts`
-  (`BR2_LINUX_KERNEL_CUSTOM_DTS_DIR`), covering ethernet, HDMI, USB hubs,
-  CAN (`flexcan1`/`flexcan2`), and the onboard WiFi/BT combo chip
-  (BCM4345/6 on `usdhc1` SDIO + Bluetooth on `uart1`).
-- **OP-TEE**: enabled via `BR2_TARGET_OPTEE_OS` + `SPD=opteed` on ATF. See
-  `board/debix-model-a/u-boot/uboot.fragment`, the `0003-*` U-Boot patch, and
-  `external.mk` (patches `host-imx-mkimage`'s `mkimage_fit_atf.sh` to add the
-  missing `os = "tee";` FIT property, since that's what SPL needs to locate
-  BL32).
-- **WiFi/BT firmware**: `board/debix-model-a/rootfs_overlay/usr/lib/firmware/brcm/`
-  provides the missing default nvram calibration file for the BCM4345/6 chip
-  (reused from a Raspberry Pi 4B/CM4 nvram — same chip family, but **not**
-  RF-tuned for this board's antenna; replace with Polyhex's file if available).
-- `brcmfmac` is built as a kernel **module** (not built-in) — see
-  `board/common/linux/wifi.fragment`. This is required: a built-in
-  driver's SDIO probe (and firmware request) can run before the real rootfs
-  is mounted, causing spurious firmware-not-found errors.
-- **SSH/SCP**: OpenSSH client and server are enabled in the defconfig. The
-  systemd `sshd.service` starts the server and generates host keys on first
-  boot; the server package includes `sftp-server`, which modern `scp` clients
-  use. The overlay's `sshd_config` requires password authentication for root
-  and rejects empty passwords and public-key-only login. Set a non-empty root
-  password with `make menuconfig` under **System configuration** before
-  building; the password is intentionally not stored in the external defconfig.
-  Then connect with `ssh root@<board-ip>` or copy files with
-  `scp <file> root@<board-ip>:/root/`.
-- **Watchdog**: U-Boot starts WDT1 with a 60-second timeout. The systemd drop-in
-  `board/common/rootfs_overlay/etc/systemd/system.conf.d/10-watchdog.conf`
-  configures PID 1 to service `/dev/watchdog0` every 30 seconds after userspace
-  starts. Verify on target with `systemctl show -p RuntimeWatchdogUSec`.
-- **USB mass storage (UMS)**: `board/debix-model-a/u-boot/uboot.fragment` enables
-  U-Boot's USB gadget mass-storage command. At the U-Boot prompt, use
-  `mmc list` to identify the desired card/eMMC, then run `ums 0 mmc <devnum>`
-  with the board connected to a USB host through a device-capable USB port.
-  For example, `ums 0 mmc 0` exports MMC device 0. UMS runs until Ctrl-C and
-  exposes the raw MMC device, including its partitions, to the host; do not
-  mount or modify it on both the host and board at the same time.
-
-### U-Boot configuration and patches (`board/debix-model-a/u-boot/`)
-
-The `uboot.fragment` file is merged into the board defconfig. Patches in
-`u-boot/patches/` are applied via `BR2_TARGET_UBOOT_PATCH`, in order:
-
-1. `0001-*-disable-usdhc2-uhs-voltage-swi.patch` — disables UHS voltage
-   switching on the SD card slot (`no-1-8-v;`), fixing intermittent
-   `Card did not respond to voltage select!` boot failures.
-2. `0002-*-add-dummy-mcu_rdc-node.patch` — adds a dummy `imx8m,mcu_rdc`
-   devicetree node so SPL's RDC config code doesn't print (harmless) errors.
-3. `0003-imx8mp-load-optee-as-fit-loadable.patch` — adds a `tee`/`os = "tee";`
-   FIT entry to U-Boot's own binman template. Kept for consistency, but note
-   the **actual** production image is built by `mkimage_fit_atf.sh` (patched
-   separately via `external.mk`), not this template.
-The fragment also enables `CONFIG_TEE`/`CONFIG_OPTEE` in U-Boot proper, so it
-can probe OP-TEE and add the `firmware/optee` node required by Linux.
-
-## Board support: `warp7`
-
-Defconfig: `configs/warp7_defconfig`
-
-- **Boot chain**: BootROM → TF-A BL2 (`PLAT=warp7`, BL2 at EL3) → OP-TEE
-  (BL32, `imx-mx7swarp7_mbl`) → U-Boot (BL33, `warp7_bl33_defconfig`) → Linux.
-  See <https://trustedfirmware-a.readthedocs.io/en/stable/plat/warp7.html>.
-- **Boot media** (eMMC, `mmc 0` in U-Boot, `/dev/mmcblk2` in Linux):
-  `bl2.bin.imx` at 1K, U-Boot environment at 512K/640K, `fip.bin` at 1M (BL2
-  reads at most 1 MiB), then boot VFAT (`boot.scr`), rootfs A/B and data, as
-  on the Debix. `board/warp7/post-image.sh` wraps `bl2.bin` with the i.MX
-  header using U-Boot's `u-boot.cfgout` (DDR init from `imximage.cfg`).
-- **OP-TEE**: placed by TF-A in the last 32 MiB of DDR (0x9e000000); the
-  Linux devicetree `board/warp7/linux/dts/nxp/imx/imx7s-warp.dts`
-  reserves it and adds the `firmware/optee` node.
-- **SWUpdate**: `board/warp7/u-boot/patches/0001-*` adds the A/B and bootcount
-  variables to U-Boot's default environment (`rootpart` already exists in
-  `warp7.h`).
-- **U-Boot devicetree**: U-Boot builds the upstream `nxp/imx/imx7s-warp.dts`
-  (`OF_UPSTREAM`); board nodes (MCP23008 GPIO expander and boot LED, MCP7940x
-  RTC, mikroBUS reset hog) are appended from
-  `board/warp7/u-boot/imx7s-warp-extra.dtsi` via
-  `CONFIG_DEVICE_TREE_INCLUDES` and `BR2_TARGET_UBOOT_CUSTOM_DTS_PATH`.
-- **Flashing**: at the U-Boot prompt run `ums 0 mmc 0`, then
-  `sudo dd if=output/images/sdcard.img of=/dev/sdX bs=1M` on the host.
-
-## Install System Dependencies
-
-The external is tested on Ubuntu 22.04 LTS.  The following system build
-dependencies are required.
-```
-$ sudo apt-get install subversion build-essential bison flex gettext \
-    libncurses5-dev texinfo autoconf automake libtool mercurial git-core \
-    gperf gawk expat curl cvs libexpat-dev bzr unzip bc python-dev \
-    wget cpio rsync xxd
-```
-
-In some cases, buildroot will notify that additional host dependencies are
-required.  It will let you know what those are.
+| Board | SoC | Defconfig | Details |
+|-------|-----|-----------|---------|
+| Polyhex Debix Model A | i.MX8M Plus | `imx8mp_debix_model_a_defconfig` | [board/debix-model-a](board/debix-model-a/README.md) |
+| Element14 WaRP7 | i.MX7S | `warp7_defconfig` | [board/warp7](board/warp7/README.md) |
 
 ## Build
 
-Clone, configure, and build against Buildroot.
-
 ```
-$ git clone https://github.com/bdx-iot/bdx-iot-external.git
-$ git clone https://git.busybox.net/buildroot
-$ cd buildroot
-$ make BR2_EXTERNAL=../bdx-iot-external imx8mp_debix_model_a_defconfig
-$ make
+git clone https://github.com/bdx-iot/bdx-iot-external.git
+git clone https://git.busybox.net/buildroot
+cd buildroot
+make BR2_EXTERNAL=../bdx-iot-external O=../output/debix imx8mp_debix_model_a_defconfig
+make O=../output/debix
 ```
 
-The resulting bootloader, kernel, and root filesystem will be put in the
-`output/images` directory. There is also a complete `sdcard.img`.
+Use `warp7_defconfig` for the WaRP7. The output's `images/` directory holds
+`sdcard.img`, written to the board as described in its README, and the
+`.swu` update.
 
-#### Create an eMMC/SD Card
+Set a root password (`make menuconfig`, **System configuration**) before
+building: it is not stored in the defconfigs, and SSH refuses empty
+passwords.
 
-A SD card image is generated in the file `sdcard.img`.
-This image can be written directly to an eMMC/SD card.
+Host dependencies (Ubuntu 22.04):
 
 ```
-$ cd output/images
-$ sudo dd if=sdcard.img of=/dev/sdX bs=1M
+sudo apt-get install build-essential bison flex gettext libncurses5-dev \
+    texinfo autoconf automake libtool git gperf gawk expat curl unzip bc \
+    python3-dev wget cpio rsync xxd
 ```
-Another method, which is cross platform, to write the SD card image is to use
-[Etcher][1].
 
-[1]: https://etcher.io/
+## Shared files: `board/common`
 
+| Path | Content |
+|------|---------|
+| `rootfs_overlay/` | applied before each board's overlay (a board file wins): SSH server configuration, systemd watchdog (`RuntimeWatchdogSec=120s`), `tee-supplicant` service, DLT configuration |
+| `linux/`, `busybox.fragment` | Wi-Fi and Bluetooth kernel fragments, BusyBox fragment |
+| `patches/` | package patches (`BR2_GLOBAL_PATCH_DIR`), e.g. OP-TEE's for the Debix |
+| `swupdate/` | SWUpdate configuration; `source` is a git submodule, built through `local.mk` (`BR2_PACKAGE_OVERRIDE_FILE`) |
+
+## Packages
+
+| Package | Content |
+|---------|---------|
+| `dlt-daemon` | COVESA DLT logging daemon |
+| `optee-i2c-test` | test TA and client for the WaRP7 OP-TEE I2C drivers (development only) |

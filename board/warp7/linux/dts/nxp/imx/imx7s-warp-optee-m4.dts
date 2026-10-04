@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * WaRP7 with the IO board: upstream imx7s-warp.dts plus the OP-TEE nodes and
+ * the IO board devices. The I2C devices belong to OP-TEE.
+ */
+
+#include "imx7s-warp.dts"
+
+/ {
+	/*
+	 * OP-TEE is loaded by TF-A BL2 in the last 32 MiB of DDR
+	 * (TZDRAM 0x9e000000 + shared memory 0x9fe00000).
+	 */
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		optee@9e000000 {
+			reg = <0x9e000000 0x02000000>;
+			no-map;
+		};
+	};
+
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		/* mcp23008 is on i2c3, owned by OP-TEE */
+		status = "disabled";
+
+		system {
+			label = "boot";
+			gpios = <&mcp23008 0 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+	};
+
+	clocks {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		/* fixed crystal dedicated to the mcp251x */
+		clk8m: clk@1 {
+			compatible = "fixed-clock";
+			reg = <1>;
+			#clock-cells = <0>;
+			clock-frequency = <8000000>;
+			clock-output-names = "clk8m";
+		};
+	};
+};
+
+/*
+ * Wi-Fi (BCM43430) disabled: its power-up when brcmfmac loads resets the
+ * board. Keeping usdhc1 off leaves reg_brcm, the chip supply, off.
+ */
+&usdhc1 {
+	status = "disabled";
+};
+
+/*
+ * IO board I2C bus: owned by OP-TEE (imx7s-warp-optee.dts in OP-TEE), the
+ * devices are reached through the i2c_devices PTA and /dev/rtc via rtc-optee.
+ */
+&i2c3 {
+	status = "disabled";
+
+	mcp23008: mcp23008@20 {
+		compatible = "microchip,mcp23008";
+		gpio-controller;
+		#gpio-cells = <2>;
+		reg = <0x20>;
+	};
+
+	rtc@6f {
+		compatible = "microchip,mcp7940x";
+		reg = <0x6f>;
+	};
+
+	eeprom@50 {
+		compatible = "atmel,24c08";
+		reg = <0x50>;
+		pagesize = <16>;
+	};
+
+	lm75a@4b {
+		compatible = "national,lm75a";
+		reg = <0x4b>;
+	};
+
+	pcf8591@48 {
+		compatible = "nxp,pcf8591";
+		reg = <0x48>;
+	};
+};
+
+&ecspi2 {
+	fsl,spi-num-chipselects = <2>;
+	cs-gpios = <&gpio4 23 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_ecspi2>;
+	status = "okay";
+
+	can: can@0 {
+		compatible = "microchip,mcp2515";
+		pinctrl-names = "can";
+		pinctrl-0 = <&pinctrl_can_int>;
+		clocks = <&clk8m>;
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		interrupt-parent = <&gpio7>;
+		interrupts = <7 IRQ_TYPE_EDGE_FALLING>;
+	};
+};
+
+&iomuxc {
+	pinctrl_ecspi2: ecspi2grp {
+		fsl,pins = <
+			MX7D_PAD_ECSPI2_MISO__ECSPI2_MISO	0x00000014
+			MX7D_PAD_ECSPI2_MOSI__ECSPI2_MOSI	0x00000014
+			MX7D_PAD_ECSPI2_SCLK__ECSPI2_SCLK	0x00000014
+			MX7D_PAD_ECSPI2_SS0__ECSPI2_SS0		0x00000014
+		>;
+	};
+
+	pinctrl_can_int: cangrp {
+		fsl,pins = <
+			MX7D_PAD_ENET1_RGMII_TD1__GPIO7_IO7	0x14 /* INT */
+		>;
+	};
+};

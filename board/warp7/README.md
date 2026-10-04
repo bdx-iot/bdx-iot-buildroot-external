@@ -45,7 +45,7 @@ mkimage -n ${UBOOT_DIR}/u-boot.cfgout -T imximage -e 0x9df00000 -d bl2.bin bl2.b
 | 0x9e000000 - 0xa0000000 | OP-TEE TZDRAM + shared memory (secure)          |
 
 U-Boot is told about the OP-TEE region with `CONFIG_OPTEE_TZDRAM_SIZE`, and
-Linux with a `reserved-memory` node in `linux/dts/nxp/imx/imx7s-warp.dts`.
+Linux with a `reserved-memory` node in `linux/dts/nxp/imx/imx7s-warp-optee-m4.dts`.
 
 ## eMMC layout
 
@@ -71,9 +71,9 @@ bigger. Current size: ~0.9 MiB (U-Boot ~510 KiB + OP-TEE ~400 KiB).
 | File | Purpose |
 |------|---------|
 | `genimage.cfg` | eMMC image layout above |
-| `post-build.sh` | copies `zImage` and the dtb into `/boot` of the rootfs |
+| `post-build.sh` | copies `zImage` and the dtb (`imx7s-warp-optee-m4.dtb`, installed as `/boot/imx7s-warp.dtb`) into `/boot` of the rootfs |
 | `post-image.sh` | `bl2.bin.imx`, `sdcard.img`, `warp7-<version>.swu` |
-| `linux/dts/nxp/imx/imx7s-warp.dts` | full copy of upstream v6.12.24 dts + board nodes (MCP23008, RTC, EEPROM, LM75A, PCF8591, MCP2515 CAN) + OP-TEE nodes; replaces the in-tree file, so it cannot `#include` it |
+| `linux/dts/nxp/imx/imx7s-warp-optee-m4.dts` | `#include`s the in-tree `imx7s-warp.dts` and adds the OP-TEE nodes and the IO board devices (MCP23008, RTC, EEPROM, LM75A, PCF8591 on i2c3, owned by OP-TEE; MCP2515 CAN); disables Wi-Fi (usdhc1) |
 | `linux/optee.fragment` | `CONFIG_TEE`, `CONFIG_OPTEE` |
 | `linux/sensors.fragment` | sensors, MCP23S08, MCP251x, DS1307 |
 | `u-boot/uboot.fragment` | merged into `warp7_bl33_defconfig`, see below |
