@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * WaRP7 with the IO board: upstream imx7s-warp.dts plus the OP-TEE nodes and
- * the IO board devices. The I2C devices belong to OP-TEE.
+ * WaRP7 with the IO board: upstream imx7s-warp.dts plus the OP-TEE nodes, the
+ * IO board devices and the Cortex-M4 (remoteproc, RPMsg). The I2C devices
+ * belong to OP-TEE.
  */
 
 #include "imx7s-warp.dts"
@@ -20,6 +21,57 @@
 			reg = <0x9e000000 0x02000000>;
 			no-map;
 		};
+
+		/*
+		 * Cortex-M4, just below OP-TEE: RPMsg buffers and vrings (their
+		 * addresses are built into the M4 firmware), then 14 MiB for
+		 * firmware linked to run from DDR (M4 code alias 0x1d000000).
+		 */
+		vdev0buffer: vdev0buffer@9de00000 {
+			compatible = "shared-dma-pool";
+			reg = <0x9de00000 0x100000>;
+			no-map;
+		};
+
+		vdev0vring0: vdev0vring0@9df00000 {
+			reg = <0x9df00000 0x8000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@9df08000 {
+			reg = <0x9df08000 0x8000>;
+			no-map;
+		};
+
+		m4_reserved: m4@9d000000 {
+			reg = <0x9d000000 0xe00000>;
+			no-map;
+		};
+
+		/* OCRAM (128 KiB): M4 code, e.g. Zephyr with zephyr,flash = &ocram_code */
+		m4_ocram: m4-ocram@900000 {
+			reg = <0x00900000 0x20000>;
+			no-map;
+		};
+	};
+
+	/*
+	 * Started by Linux from /lib/firmware (remoteproc). Its boot vector goes
+	 * to OCRAM_S, which OP-TEE must leave open (CFG_IMX_CSU_M4_OCRAM_S=y).
+	 */
+	imx7s-cm4 {
+		compatible = "fsl,imx7d-cm4";
+		clocks = <&clks IMX7D_ARM_M4_ROOT_CLK>;
+		syscon = <&src>;
+		mbox-names = "tx", "rx", "rxdb";
+		/* MU channel 0: the M4 kicks with MU register id = vring id */
+		mboxes = <&mu0a 0 0>, <&mu0a 1 0>, <&mu0a 3 0>;
+		/*
+		 * vdev0buffer first: the RPMsg buffer pool is region 0. The others
+		 * are where imx_rproc may load firmware, besides OCRAM_S and the TCM.
+		 */
+		memory-region = <&vdev0buffer>, <&vdev0vring0>, <&vdev0vring1>,
+				<&m4_reserved>, <&m4_ocram>;
 	};
 
 	firmware {
@@ -54,6 +106,11 @@
 			clock-output-names = "clk8m";
 		};
 	};
+};
+
+/* Linux side of the MU, the RPMsg doorbell with the Cortex-M4 */
+&mu0a {
+	status = "okay";
 };
 
 /*

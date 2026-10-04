@@ -41,11 +41,62 @@ mkimage -n ${UBOOT_DIR}/u-boot.cfgout -T imximage -e 0x9df00000 -d bl2.bin bl2.b
 | 0x83000000              | Linux dtb (`fdt_addr`)                          |
 | 0x83100000              | OP-TEE DT overlay (`CFG_DT_ADDR`, `_mbl` flavour) |
 | 0x87800000              | U-Boot (BL33 entry, `CONFIG_TEXT_BASE`)         |
+| 0x9d000000 - 0x9de00000 | Cortex-M4 firmware linked for DDR (reserved)    |
+| 0x9de00000 - 0x9df00000 | RPMsg buffers (`vdev0buffer`)                   |
+| 0x9df00000 - 0x9df10000 | RPMsg vrings (`vdev0vring0`/`1`), after boot    |
 | 0x9df00000 - 0x9e000000 | TF-A BL2 (only during boot)                     |
 | 0x9e000000 - 0xa0000000 | OP-TEE TZDRAM + shared memory (secure)          |
 
 U-Boot is told about the OP-TEE region with `CONFIG_OPTEE_TZDRAM_SIZE`, and
 Linux with a `reserved-memory` node in `linux/dts/nxp/imx/imx7s-warp-optee-m4.dts`.
+
+## Cortex-M4 (remoteproc)
+
+Linux starts the M4 with `imx_rproc` (`fsl,imx7d-cm4` node) and talks to it
+over RPMsg through the MU (`mu0a`):
+
+```
+cp m4-firmware.elf /lib/firmware/
+echo m4-firmware.elf > /sys/class/remoteproc/remoteproc0/firmware
+echo start > /sys/class/remoteproc/remoteproc0/state
+echo stop  > /sys/class/remoteproc/remoteproc0/state
+```
+
+- OP-TEE makes two blocks secure only that the M4, a non-secure bus master,
+  needs; `BR2_TARGET_OPTEE_OS_ADDITIONAL_VARIABLES` leaves them open (options
+  of the `bdx-iot/optee-os` branch):
+  - `CFG_IMX_CSU_M4_OCRAM_S=y`: OCRAM_S, where the M4 reads its boot vector
+    (its address 0) and Linux writes the firmware loaded there;
+  - `CFG_IMX_CSU_M4_RDC=y`: the RDC, which M4 firmware such as Zephyr
+    programs at startup; without it the M4 faults before `main()`. The
+    normal world can then change the RDC permissions too.
+- `imx_rproc` only releases the M4 reset: the firmware vector table must be
+  at address 0 (OCRAM_S code bus, 32 KiB). `imx_rproc` can load OCRAM_S,
+  the TCM, OCRAM (0x900000, 128 KiB) and the DDR reserved for the M4. With
+  Zephyr:
+  - small firmware: `zephyr,flash = &ocram_s_code`, `zephyr,sram =
+    &tcmu_sys`; not `ocram_s_sys`, the same OCRAM_S through the system bus;
+  - bigger firmware (OpenAMP): `zephyr,flash = &ocram_code` with
+    `CONFIG_ROMSTART_RELOCATION_ROM=y`, which keeps the vector table at 0.
+
+  Load the `.elf`, not the `.bin`. The M4 console is UART2, the second port
+  of the debug USB.
+- A warm reset (`reboot`, `reset`) does not stop the M4: `SRC_M4RCR` and
+  OCRAM_S keep their contents, and the M4 runs the previous firmware again as
+  soon as Linux enables its clock. `boot.scr` therefore puts it back in reset
+  (`mw.l 0x3039000c 0xab`, the power-on value) before booting Linux.
+- Firmware linked for DDR runs at 0x1d000000 (M4 code alias of
+  0x9d000000), 14 MiB, but still needs its vector table at address 0.
+- RPMsg: Linux places the vrings in `vdev0vring0`/`1` (0x9df00000,
+  0x9df08000) and the buffers in `vdev0buffer` (0x9de00000, 1 MiB), so the
+  firmware resource table must leave the vring addresses to Linux
+  (`FW_RSC_U32_ADDR_ANY`, as Zephyr's OpenAMP does) and its shared memory
+  must cover 0x9de00000 - 0x9df10000 (Zephyr `zephyr,ipc_shm`). Firmware
+  with fixed vrings, like the NXP SDK default 0x9ff00000, lands inside OP-TEE.
+- The MU is used on channel 0 (`mboxes = <&mu0a 0 0>, <&mu0a 1 0>, <&mu0a 3 0>`):
+  the M4 kicks Linux by writing MU register id = vring id (Zephyr:
+  `CONFIG_IPM_IMX_MAX_DATA_SIZE_4=y`). An `rpmsg-tty` channel from the M4
+  shows up as `/dev/ttyRPMSG*`.
 
 ## eMMC layout
 
@@ -76,8 +127,9 @@ bigger. Current size: ~0.9 MiB (U-Boot ~510 KiB + OP-TEE ~400 KiB).
 | `genimage.cfg` | eMMC image layout above |
 | `post-build.sh` | copies `zImage` and the dtb (`imx7s-warp-optee-m4.dtb`, installed as `/boot/imx7s-warp.dtb`) into `/boot` of the rootfs |
 | `post-image.sh` | `bl2.bin.imx`, `sdcard.img`, `warp7-<version>.swu` |
-| `linux/dts/nxp/imx/imx7s-warp-optee-m4.dts` | `#include`s the in-tree `imx7s-warp.dts` and adds the OP-TEE nodes and the IO board devices (MCP23008, RTC, EEPROM, LM75A, PCF8591 on i2c3, owned by OP-TEE; MCP2515 CAN); disables Wi-Fi (usdhc1) |
+| `linux/dts/nxp/imx/imx7s-warp-optee-m4.dts` | `#include`s the in-tree `imx7s-warp.dts` and adds the OP-TEE nodes, the IO board devices (MCP23008, RTC, EEPROM, LM75A, PCF8591 on i2c3, owned by OP-TEE; MCP2515 CAN) and the Cortex-M4 (remoteproc, MU, reserved memory); disables Wi-Fi (usdhc1) |
 | `linux/optee.fragment` | `CONFIG_TEE`, `CONFIG_OPTEE` |
+| `linux/remoteproc.fragment` | `CONFIG_IMX_REMOTEPROC`, `CONFIG_IMX_MBOX`, RPMsg (virtio, char, ctrl, tty) |
 | `linux/sensors.fragment` | sensors, MCP23S08, MCP251x, DS1307 |
 | `u-boot/uboot.fragment` | merged into `warp7_bl33_defconfig`, see below |
 | `u-boot/imx7s-warp-extra.dtsi` | U-Boot DT nodes, appended with `CONFIG_DEVICE_TREE_INCLUDES` |
