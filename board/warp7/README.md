@@ -94,8 +94,11 @@ echo stop  > /sys/class/remoteproc/remoteproc0/state
   must cover 0x9de00000 - 0x9df10000 (Zephyr `zephyr,ipc_shm`). Firmware
   with fixed vrings, like the NXP SDK default 0x9ff00000, lands inside OP-TEE.
 - The MU is used on channel 0 (`mboxes = <&mu0a 0 0>, <&mu0a 1 0>, <&mu0a 3 0>`):
-  the M4 kicks Linux by writing MU register id = vring id (Zephyr:
-  `CONFIG_IPM_IMX_MAX_DATA_SIZE_4=y`). An `rpmsg-tty` channel from the M4
+  Linux listens on MU register 0 and then processes every vring, so the M4
+  must kick on register 0 (Zephyr: `CONFIG_IPM_IMX_MAX_DATA_SIZE_4=y`; the
+  `rpmsg_echo` app also sets `CONFIG_RPMSG_ECHO_MU_KICK_ID=0`, since the
+  upstream OpenAMP sample kicks on the register numbered like the vring and
+  Linux misses the kicks on register 1). An `rpmsg-tty` channel from the M4
   shows up as `/dev/ttyRPMSG*`.
 
 ## eMMC layout
@@ -127,7 +130,7 @@ bigger. Current size: ~0.9 MiB (U-Boot ~510 KiB + OP-TEE ~400 KiB).
 | `genimage.cfg` | eMMC image layout above |
 | `post-build.sh` | copies `zImage` and the dtb (`imx7s-warp-optee-m4.dtb`, installed as `/boot/imx7s-warp.dtb`) into `/boot` of the rootfs |
 | `post-image.sh` | `bl2.bin.imx`, `sdcard.img`, `warp7-<version>.swu` |
-| `linux/dts/nxp/imx/imx7s-warp-optee-m4.dts` | `#include`s the in-tree `imx7s-warp.dts` and adds the OP-TEE nodes, the IO board devices (MCP23008, RTC, EEPROM, LM75A, PCF8591 on i2c3, owned by OP-TEE; MCP2515 CAN) and the Cortex-M4 (remoteproc, MU, reserved memory); disables Wi-Fi (usdhc1) |
+| `linux/dts/nxp/imx/imx7s-warp-optee-m4.dts` | `#include`s the in-tree `imx7s-warp.dts` and adds the OP-TEE nodes, the IO board devices (MCP23008, RTC, EEPROM, LM75A, PCF8591 on i2c3, owned by OP-TEE; MCP2515 CAN) and the Cortex-M4 (remoteproc, MU, reserved memory); disables Wi-Fi (usdhc1) and the SoC RTC (`snvs_rtc`), so the OP-TEE RTC (MCP7940x) is `rtc0` |
 | `linux/optee.fragment` | `CONFIG_TEE`, `CONFIG_OPTEE` |
 | `linux/remoteproc.fragment` | `CONFIG_IMX_REMOTEPROC`, `CONFIG_IMX_MBOX`, RPMsg (virtio, char, ctrl, tty) |
 | `linux/sensors.fragment` | sensors, MCP23S08, MCP251x, DS1307 |

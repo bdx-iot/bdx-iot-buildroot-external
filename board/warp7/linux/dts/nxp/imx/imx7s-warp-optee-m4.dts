@@ -108,6 +108,14 @@
 	};
 };
 
+/*
+ * SoC RTC off: the system RTC is the IO board MCP7940x, reached through
+ * OP-TEE (rtc-optee), which then becomes rtc0 (/dev/rtc, hwclock, systemd).
+ */
+&snvs_rtc {
+	status = "disabled";
+};
+
 /* Linux side of the MU, the RPMsg doorbell with the Cortex-M4 */
 &mu0a {
 	status = "okay";
