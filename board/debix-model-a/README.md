@@ -49,11 +49,54 @@ from `swupdate/sw-description`.
 | `genimage.cfg` | storage layout above |
 | `post-build.sh` | copies `Image` and the dtb into `/boot` of the rootfs |
 | `post-image.sh` | `sdcard.img` and the `.swu` update |
-| `linux/dts/freescale/imx8mp-debix-model-a.dts` | board dts (`BR2_LINUX_KERNEL_CUSTOM_DTS_DIR`): Ethernet, HDMI, USB hubs, CAN (`flexcan1`/`flexcan2`), Wi-Fi/BT (BCM4345/6 on `usdhc1` SDIO, Bluetooth on `uart1`) |
+| `linux/dts/freescale/imx8mp-debix-model-a.dts` | board dts (`BR2_LINUX_KERNEL_CUSTOM_DTS_DIR`): Ethernet, HDMI, USB hubs, CAN (`flexcan1`/`flexcan2`), Wi-Fi/BT (BCM4345/6 on `usdhc1` SDIO, Bluetooth on `uart1`), Cortex-M7 (remoteproc, RPMsg); UART3 left to the M7 |
+| `linux/rpmsg.fragment` | `CONFIG_IMX_REMOTEPROC`, `CONFIG_IMX_MBOX`, RPMsg virtio, `rpmsg_tty` (module) |
 | `u-boot/uboot.fragment` | merged into the U-Boot defconfig: OP-TEE, redundant environment, bootcount, USB gadget (UMS, ACM, Ethernet) |
 | `u-boot/boot.cmd` | A/B boot script |
 | `u-boot/patches/` | U-Boot patches, below |
 | `rootfs_overlay/usr/lib/firmware/brcm/` | BCM4345/6 NVRAM, see Wi-Fi |
+
+## Cortex-M7 (remoteproc)
+
+Linux starts the M7 with `imx_rproc` (`fsl,imx8mn-cm7` node), through TF-A
+(`IMX_SIP_SRC`: TF-A enables the M7 at boot and parks it with `CPUWAIT`), and
+talks to it over RPMsg through the MU:
+
+```
+cp m7-firmware.elf /lib/firmware/
+echo m7-firmware.elf > /sys/class/remoteproc/remoteproc0/firmware
+echo start > /sys/class/remoteproc/remoteproc0/state
+echo stop  > /sys/class/remoteproc/remoteproc0/state
+```
+
+| Region | Address |
+|--------|---------|
+| ITCM / DTCM (M7 code / data) | M7 0x0 / 0x20000000, Linux 0x007E0000 / 0x00800000 |
+| RPMsg vrings (`vdev0vring0`/`1`) | 0x55000000 / 0x55008000 |
+| RPMsg buffers (`vdevbuffer`) | 0x55400000, 1 MiB |
+| OP-TEE | 0x56000000 - 0x58000000 |
+
+- Clock: `IMX8MP_CLK_M7_CORE`. The NXP EVK DT uses `IMX8MP_CLK_M7_DIV`, which
+  this kernel does not register: `imx_rproc` then gets no clock, `m7_core` is
+  disabled as unused, and any access to the TCM hangs the bus (and remoteproc
+  with it, until the watchdog resets the board).
+- Resource table: the one in the ELF. `<&rsc_table>` (0x550ff000, NXP SDK
+  firmware) is left out of `memory-region`: with it, `imx_rproc` writes the
+  vring addresses and the "driver ready" status there, and firmware keeping
+  its table in the ELF (Zephyr) waits forever.
+- MU channel 1 (`mboxes = <&mu 0 1>, <&mu 1 1>, <&mu 3 1>`): Linux listens on
+  MU register 1 and then processes every vring, so the M7 must kick on
+  register 1 (Zephyr `rpmsg_echo`: `CONFIG_RPMSG_ECHO_MU_KICK_ID=1`).
+- The M7 has a data cache: firmware must maintain it on the shared DDR
+  (Zephyr: `CONFIG_CACHE_MANAGEMENT=y`, `CONFIG_OPENAMP_WITH_DCACHE=y`).
+- Console: UART3 (`/dev/ttymxc2` when Linux owns it, disabled in the Linux DT
+  for the M7). On the DEBIX I/O board, DIP switch SW1-1 ON (up) routes it to
+  the 40-pin header J2: pin 8 TX, pin 10 RX, ground on pin 6, 3.3 V TTL. With
+  SW1-1 OFF it goes to the RS232 transceiver (J12 pins 6/5/7).
+- An `rpmsg-tty` channel from the M7 shows up as `/dev/ttyRPMSG*` once the
+  `rpmsg_tty` module is loaded (`modprobe rpmsg_tty` if not automatic).
+- No DDR is reserved for M7 code: firmware runs from the TCM (Zephyr board
+  `imx8mp_debix_model_a/mimx8ml8/m7`, not the `ddr` variant).
 
 ## U-Boot patches
 

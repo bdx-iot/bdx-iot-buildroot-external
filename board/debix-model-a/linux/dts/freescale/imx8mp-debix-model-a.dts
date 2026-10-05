@@ -92,13 +92,24 @@
 	imx8mp-cm7 {
 		compatible = "fsl,imx8mn-cm7";
 		rsc-da = <0x55000000>;
-		clocks = <&clk IMX8MP_CLK_M7_DIV>,
+		/*
+		 * M7_CORE, not M7_DIV (NXP EVK DT): this kernel does not register
+		 * M7_DIV, so imx_rproc got no clock, m7_core was disabled as
+		 * unused, and any access to the M7 TCM hung the bus.
+		 */
+		clocks = <&clk IMX8MP_CLK_M7_CORE>,
 			 <&audio_blk_ctrl IMX8MP_CLK_AUDIOMIX_AUDPLL_ROOT>;
 		clock-names = "core", "audio";
 		mbox-names = "tx", "rx", "rxdb";
 		mboxes = <&mu 0 1>, <&mu 1 1>, <&mu 3 1>;
-		memory-region = <&vdevbuffer>, <&vdev0vring0>,
-				<&vdev0vring1>, <&rsc_table>;
+		/*
+		 * No <&rsc_table>: with it, imx_rproc uses the resource table at
+		 * 0x550ff000 (NXP SDK firmware) instead of the one in the ELF, so
+		 * firmware keeping its table in the ELF (Zephyr) never sees the
+		 * vring addresses and the "driver ready" status Linux writes.
+		 */
+		memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>;
+		fsl,startup-delay-ms = <500>;
 		status = "okay";
 	};
 };
@@ -383,10 +394,11 @@
 	status = "okay";
 };
 
+/* Cortex-M7 console (Zephyr board imx8mp_debix_model_a/m7) */
 &uart3 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart3>;
-	status = "okay";
+	status = "disabled";
 };
 
 &uart4 {
