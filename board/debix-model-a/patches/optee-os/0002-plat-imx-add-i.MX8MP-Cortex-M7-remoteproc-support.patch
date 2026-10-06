@@ -1,0 +1,835 @@
+From fedbead493b0789ba575828e4eb43b6f9f4cf7e3 Mon Sep 17 00:00:00 2001
+From: Joris OFFOUGA <offougajoris@icloud.com>
+Date: Tue, 6 Oct 2026 00:06:15 +0200
+Subject: [PATCH 2/2] plat-imx: add i.MX8MP Cortex-M7 remoteproc support
+
+Let the remoteproc TA authenticate, load, start and stop the i.MX8MP
+Cortex-M7 firmware, for Linux imx_rproc "fsl,imx8mp-cm7-tee".
+
+The driver holds the M7 memory map (ITCM, DTCM and an optional DDR region
+set with CFG_IMX_REMOTEPROC_DDR_START/SIZE) and the start/stop sequences of
+the TF-A IMX_SIP_SRC service: start clears IOMUXC_GPR22 CM7_CPUWAIT; stop
+requests the GPC sleep hold, sets CPUWAIT back and resets the M7 core and
+platform through SRC_M7RCR.
+
+The PTA is the STM32MP one on top of this driver, with the
+PTA_RPROC_SET_MEMORY fill value fixed (bitwise instead of logical AND).
+
+Enable with CFG_IMX_REMOTEPROC=y: it embeds the remoteproc early TA and the
+public part of RPROC_SIGN_KEY, used to verify the firmware signature
+(scripts/sign_rproc_fw.py).
+
+The M7 is a non-secure bus master and its TCMs are accessible from the
+normal world: the firmware is authenticated when loaded, not protected
+afterwards.
+
+Signed-off-by: Joris OFFOUGA <offougajoris@icloud.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ core/arch/arm/plat-imx/conf.mk           |  18 ++
+ core/drivers/remoteproc/imx_remoteproc.c | 267 ++++++++++++++++
+ core/drivers/remoteproc/sub.mk           |   1 +
+ core/include/drivers/imx_remoteproc.h    |  71 +++++
+ core/pta/imx/remoteproc_pta.c            | 371 +++++++++++++++++++++++
+ core/pta/imx/rproc_pub_key.h             |  16 +
+ core/pta/imx/sub.mk                      |   1 +
+ 7 files changed, 745 insertions(+)
+ create mode 100644 core/drivers/remoteproc/imx_remoteproc.c
+ create mode 100644 core/include/drivers/imx_remoteproc.h
+ create mode 100644 core/pta/imx/remoteproc_pta.c
+ create mode 100644 core/pta/imx/rproc_pub_key.h
+
+diff --git a/core/arch/arm/plat-imx/conf.mk b/core/arch/arm/plat-imx/conf.mk
+index d1fc288..848c8dd 100644
+--- a/core/arch/arm/plat-imx/conf.mk
++++ b/core/arch/arm/plat-imx/conf.mk
+@@ -639,3 +639,21 @@ endif
+ ifeq ($(CFG_BUSFREQ),y)
+ $(call force,CFG_SM_PLATFORM_HANDLER,y)
+ endif
++
++# i.MX8MP: load, authenticate, start and stop the Cortex-M7 firmware through
++# the remoteproc TA (Linux imx_rproc "fsl,imx8mp-cm7-tee"). The firmware is
++# signed with scripts/sign_rproc_fw.py and the RPROC_SIGN_KEY private key.
++# CFG_IMX_REMOTEPROC_DDR_START/SIZE add a DDR region (same address for the
++# M7 and the Cortex-A) to the M7 TCMs, for firmware linked in DDR.
++CFG_IMX_REMOTEPROC ?= n
++ifeq ($(CFG_IMX_REMOTEPROC),y)
++ifneq ($(CFG_MX8MP),y)
++$(error CFG_IMX_REMOTEPROC is only supported on i.MX8MP)
++endif
++$(call force,CFG_DRIVERS_REMOTEPROC,y)
++$(call force,CFG_REMOTEPROC_PTA,y)
++CFG_IN_TREE_EARLY_TAS += remoteproc/80a4c275-0a47-4905-8285-1486a9771a08
++RPROC_SIGN_KEY ?= keys/default.pem
++CFG_IMX_REMOTEPROC_DDR_START ?= 0
++CFG_IMX_REMOTEPROC_DDR_SIZE ?= 0
++endif
+diff --git a/core/drivers/remoteproc/imx_remoteproc.c b/core/drivers/remoteproc/imx_remoteproc.c
+new file mode 100644
+index 0000000..1b16ab7
+--- /dev/null
++++ b/core/drivers/remoteproc/imx_remoteproc.c
+@@ -0,0 +1,267 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2026, Joris Offouga
++ *
++ * i.MX8MP Cortex-M7 remote processor control, used by the remoteproc PTA.
++ * The start/stop sequences are the ones of the TF-A IMX_SIP_SRC service
++ * (plat/imx/imx8m/gpc_common.c), which Linux imx_rproc calls otherwise.
++ */
++
++#include <drivers/imx_remoteproc.h>
++#include <initcall.h>
++#include <io.h>
++#include <kernel/cache_helpers.h>
++#include <kernel/delay.h>
++#include <kernel/panic.h>
++#include <kernel/tee_misc.h>
++#include <mm/core_memprot.h>
++#include <mm/core_mmu.h>
++#include <string.h>
++#include <trace.h>
++#include <util.h>
++
++#define IOMUXC_GPR_BASE			0x30340000
++#define IOMUXC_GPR22			0x58
++#define IOMUXC_GPR22_CM7_CPUWAIT	BIT32(0)
++
++#define SRC_BASE			0x30390000
++#define SRC_M7RCR			0x0C
++#define SRC_M7RCR_ENABLE_M7		BIT32(3)
++#define SRC_M7RCR_SW_M7P_RST		BIT32(2)
++#define SRC_M7RCR_SW_M7C_RST		BIT32(1)
++#define SRC_M7RCR_MASK			GENMASK_32(3, 0)
++
++#define GPC_BASE			0x303A0000
++/* Bit 0: M7 SLEEPHOLDREQn, active low */
++#define GPC_M7_SLEEPHOLD		0x2C
++#define GPC_M7_SLEEPHOLDREQN		BIT32(0)
++#define GPC_LPS_CPU1			0xEC
++#define GPC_LPS_CPU1_SLEEPHOLDACKN	BIT32(1)
++#define GPC_LPS_CPU1_LPM_MASK		GENMASK_32(25, 24)
++
++#define IMX_RPROC_TIMEOUT_US		10000
++
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, IOMUXC_GPR_BASE, SMALL_PAGE_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, SRC_BASE, SMALL_PAGE_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, GPC_BASE, SMALL_PAGE_SIZE);
++
++/*
++ * struct imx_rproc_mem - Memory region of the remote processor
++ * @da: device address, from the remote processor memory map
++ * @pa: physical address, from the Cortex-A memory map
++ * @size: byte size of the region
++ */
++struct imx_rproc_mem {
++	paddr_t da;
++	paddr_t pa;
++	size_t size;
++};
++
++static const struct imx_rproc_mem imx8mp_m7_mems[] = {
++	/* ITCM */
++	{ .da = 0x00000000, .pa = 0x007E0000, .size = 0x20000 },
++	/* DTCM */
++	{ .da = 0x20000000, .pa = 0x00800000, .size = 0x20000 },
++#if CFG_IMX_REMOTEPROC_DDR_SIZE
++	/* DDR, same address for both cores */
++	{
++		.da = CFG_IMX_REMOTEPROC_DDR_START,
++		.pa = CFG_IMX_REMOTEPROC_DDR_START,
++		.size = CFG_IMX_REMOTEPROC_DDR_SIZE,
++	},
++#endif
++};
++
++static vaddr_t gpr_base(void)
++{
++	return core_mmu_get_va(IOMUXC_GPR_BASE, MEM_AREA_IO_SEC,
++			       SMALL_PAGE_SIZE);
++}
++
++static vaddr_t src_base(void)
++{
++	return core_mmu_get_va(SRC_BASE, MEM_AREA_IO_SEC, SMALL_PAGE_SIZE);
++}
++
++static vaddr_t gpc_base(void)
++{
++	return core_mmu_get_va(GPC_BASE, MEM_AREA_IO_SEC, SMALL_PAGE_SIZE);
++}
++
++static const struct imx_rproc_mem *find_mem_by_pa(paddr_t pa, size_t size)
++{
++	size_t i = 0;
++
++	for (i = 0; i < ARRAY_SIZE(imx8mp_m7_mems); i++)
++		if (core_is_buffer_inside(pa, size, imx8mp_m7_mems[i].pa,
++					  imx8mp_m7_mems[i].size))
++			return imx8mp_m7_mems + i;
++
++	return NULL;
++}
++
++bool imx_rproc_is_valid(uint32_t rproc_id)
++{
++	return rproc_id == IMX_M7_RPROC_ID;
++}
++
++TEE_Result imx_rproc_da_to_pa(uint32_t rproc_id, paddr_t da, size_t size,
++			      paddr_t *pa)
++{
++	size_t i = 0;
++
++	if (!imx_rproc_is_valid(rproc_id))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	for (i = 0; i < ARRAY_SIZE(imx8mp_m7_mems); i++) {
++		const struct imx_rproc_mem *mem = imx8mp_m7_mems + i;
++
++		if (core_is_buffer_inside(da, size, mem->da, mem->size)) {
++			*pa = mem->pa + da - mem->da;
++			return TEE_SUCCESS;
++		}
++	}
++
++	return TEE_ERROR_ACCESS_DENIED;
++}
++
++TEE_Result imx_rproc_map(uint32_t rproc_id, paddr_t pa, size_t size,
++			 void **va)
++{
++	if (!imx_rproc_is_valid(rproc_id))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!find_mem_by_pa(pa, size))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	*va = core_mmu_add_mapping(MEM_AREA_RAM_NSEC, pa, size);
++	if (!*va) {
++		EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
++		return TEE_ERROR_GENERIC;
++	}
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result imx_rproc_unmap(uint32_t rproc_id, void *va, size_t size)
++{
++	paddr_t pa = virt_to_phys(va);
++
++	if (!imx_rproc_is_valid(rproc_id) || !pa)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!find_mem_by_pa(pa, size))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	/* The M7 does not snoop the Cortex-A caches */
++	dcache_clean_range(va, size);
++
++	if (core_mmu_remove_mapping(MEM_AREA_RAM_NSEC, va, size)) {
++		EMSG("Can't unmap region %#"PRIxPA" size %zu", pa, size);
++		return TEE_ERROR_GENERIC;
++	}
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result imx_rproc_start(uint32_t rproc_id)
++{
++	if (!imx_rproc_is_valid(rproc_id))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	/* The M7 boots from the vector table at its address 0 (ITCM) */
++	io_setbits32(src_base() + SRC_M7RCR, SRC_M7RCR_ENABLE_M7);
++	io_clrbits32(gpr_base() + IOMUXC_GPR22, IOMUXC_GPR22_CM7_CPUWAIT);
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result imx_rproc_stop(uint32_t rproc_id)
++{
++	vaddr_t gpc = gpc_base();
++	vaddr_t src = src_base();
++	uint32_t val = 0;
++
++	if (!imx_rproc_is_valid(rproc_id))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	/* Hold the M7 bus accesses unless it is already in WAIT/STOP */
++	if (!(io_read32(gpc + GPC_LPS_CPU1) & GPC_LPS_CPU1_LPM_MASK)) {
++		io_clrbits32(gpc + GPC_M7_SLEEPHOLD, GPC_M7_SLEEPHOLDREQN);
++		if (IO_READ32_POLL_TIMEOUT(gpc + GPC_LPS_CPU1, val,
++					   !(val & GPC_LPS_CPU1_SLEEPHOLDACKN),
++					   1, IMX_RPROC_TIMEOUT_US))
++			IMSG("M7 not in WFI, forcing the stop");
++	}
++
++	io_setbits32(gpr_base() + IOMUXC_GPR22, IOMUXC_GPR22_CM7_CPUWAIT);
++	io_setbits32(gpc + GPC_M7_SLEEPHOLD, GPC_M7_SLEEPHOLDREQN);
++
++	/* Reset the M7 core and platform, the reset bits self-clear */
++	io_setbits32(src + SRC_M7RCR, SRC_M7RCR_ENABLE_M7 |
++		     SRC_M7RCR_SW_M7P_RST | SRC_M7RCR_SW_M7C_RST);
++	if (IO_READ32_POLL_TIMEOUT(src + SRC_M7RCR, val,
++				   (val & SRC_M7RCR_MASK) ==
++				   SRC_M7RCR_ENABLE_M7,
++				   1, IMX_RPROC_TIMEOUT_US)) {
++		EMSG("M7 reset timeout, SRC_M7RCR %#"PRIx32, val);
++		return TEE_ERROR_BUSY;
++	}
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result imx_rproc_clean_up_memories(uint32_t rproc_id)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	void *va = NULL;
++	size_t i = 0;
++
++	if (!imx_rproc_is_valid(rproc_id))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	for (i = 0; i < ARRAY_SIZE(imx8mp_m7_mems); i++) {
++		const struct imx_rproc_mem *mem = imx8mp_m7_mems + i;
++
++		res = imx_rproc_map(rproc_id, mem->pa, mem->size, &va);
++		if (res)
++			return res;
++
++		memset(va, 0, mem->size);
++
++		res = imx_rproc_unmap(rproc_id, va, mem->size);
++		if (res)
++			return res;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result imx_rproc_init(void)
++{
++	size_t i = 0;
++
++	for (i = 0; i < ARRAY_SIZE(imx8mp_m7_mems); i++)
++		if (core_is_buffer_intersect(imx8mp_m7_mems[i].pa,
++					     imx8mp_m7_mems[i].size,
++					     CFG_TZDRAM_START, CFG_TZDRAM_SIZE))
++			panic("M7 memory overlaps OP-TEE memory");
++
++	/*
++	 * Keep the M7 in its wait state (GPR22 reset value) until the
++	 * firmware is authenticated and loaded. The M7 TCM is not accessed
++	 * here: its clock is enabled later, by Linux imx_rproc.
++	 */
++	io_setbits32(gpr_base() + IOMUXC_GPR22, IOMUXC_GPR22_CM7_CPUWAIT);
++
++	/*
++	 * The M7 is a non-secure bus master and its memories are accessible
++	 * from the normal world: the firmware is authenticated when loaded
++	 * but can still be modified afterwards.
++	 */
++	IMSG("Warning: the remoteproc memories are not protected by firewall");
++
++	return TEE_SUCCESS;
++}
++
++driver_init(imx_rproc_init);
+diff --git a/core/drivers/remoteproc/sub.mk b/core/drivers/remoteproc/sub.mk
+index 4eb5ca3..76b12b8 100644
+--- a/core/drivers/remoteproc/sub.mk
++++ b/core/drivers/remoteproc/sub.mk
+@@ -1 +1,2 @@
+ srcs-$(CFG_STM32MP_REMOTEPROC) += stm32_remoteproc.c
++srcs-$(CFG_IMX_REMOTEPROC) += imx_remoteproc.c
+diff --git a/core/include/drivers/imx_remoteproc.h b/core/include/drivers/imx_remoteproc.h
+new file mode 100644
+index 0000000..b27afb7
+--- /dev/null
++++ b/core/include/drivers/imx_remoteproc.h
+@@ -0,0 +1,71 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2026, Joris Offouga
++ */
++
++#ifndef __DRIVERS_IMX_REMOTEPROC_H
++#define __DRIVERS_IMX_REMOTEPROC_H
++
++#include <stdbool.h>
++#include <stdint.h>
++#include <tee_api_types.h>
++#include <types_ext.h>
++
++/* IDs of the supported remote processors */
++#define IMX_M7_RPROC_ID 0
++
++/*
++ * imx_rproc_is_valid() - Tell whether a remote processor ID is supported
++ * @rproc_id: unique identifier of the remote processor
++ */
++bool imx_rproc_is_valid(uint32_t rproc_id);
++
++/*
++ * imx_rproc_da_to_pa() - Convert a remote processor device address into the
++ * physical address seen by the Cortex-A cores
++ * @rproc_id: unique identifier of the remote processor
++ * @da: device address, from the remote processor memory map
++ * @size: byte size of the memory area
++ * @pa: output physical address
++ */
++TEE_Result imx_rproc_da_to_pa(uint32_t rproc_id, paddr_t da, size_t size,
++			      paddr_t *pa);
++
++/*
++ * imx_rproc_map() - Map a remote processor memory area in OP-TEE
++ * @rproc_id: unique identifier of the remote processor
++ * @pa: physical address of the memory area
++ * @size: byte size of the memory area
++ * @va: output virtual address
++ */
++TEE_Result imx_rproc_map(uint32_t rproc_id, paddr_t pa, size_t size,
++			 void **va);
++
++/*
++ * imx_rproc_unmap() - Clean the data cache and unmap a memory area mapped
++ * with imx_rproc_map()
++ * @rproc_id: unique identifier of the remote processor
++ * @va: virtual address of the memory area
++ * @size: byte size of the memory area
++ */
++TEE_Result imx_rproc_unmap(uint32_t rproc_id, void *va, size_t size);
++
++/*
++ * imx_rproc_start() - Release the remote processor from its wait state
++ * @rproc_id: unique identifier of the remote processor
++ */
++TEE_Result imx_rproc_start(uint32_t rproc_id);
++
++/*
++ * imx_rproc_stop() - Stop and reset the remote processor
++ * @rproc_id: unique identifier of the remote processor
++ */
++TEE_Result imx_rproc_stop(uint32_t rproc_id);
++
++/*
++ * imx_rproc_clean_up_memories() - Clear the remote processor memories
++ * @rproc_id: unique identifier of the remote processor
++ */
++TEE_Result imx_rproc_clean_up_memories(uint32_t rproc_id);
++
++#endif /* __DRIVERS_IMX_REMOTEPROC_H */
+diff --git a/core/pta/imx/remoteproc_pta.c b/core/pta/imx/remoteproc_pta.c
+new file mode 100644
+index 0000000..73be004
+--- /dev/null
++++ b/core/pta/imx/remoteproc_pta.c
+@@ -0,0 +1,371 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2026, Joris Offouga
++ */
++
++#include <crypto/crypto.h>
++#include <drivers/imx_remoteproc.h>
++#include <kernel/pseudo_ta.h>
++#include <kernel/user_ta.h>
++#include <remoteproc_pta.h>
++#include <string.h>
++
++#include "rproc_pub_key.h"
++
++#define PTA_NAME	"remoteproc.pta"
++
++/*
++ * UUID of the remoteproc Trusted application authorized to communicate with
++ * the remoteproc pseudo TA. The UID should match the one defined in the
++ * ta_remoteproc.h header file.
++ */
++#define TA_REMOTEPROC_UUID \
++	{ 0x80a4c275, 0x0a47, 0x4905, \
++		{ 0x82, 0x85, 0x14, 0x86, 0xa9, 0x77, 0x1a, 0x08} }
++
++/*
++ * Firmware states
++ * REMOTEPROC_OFF: firmware is off
++ * REMOTEPROC_ON: firmware is running
++ */
++enum rproc_load_state {
++	REMOTEPROC_OFF = 0,
++	REMOTEPROC_ON,
++};
++
++/* Currently supporting a single remote processor instance */
++static enum rproc_load_state rproc_ta_state = REMOTEPROC_OFF;
++
++static TEE_Result rproc_pta_capabilities(uint32_t pt,
++					 TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_OUTPUT,
++						TEE_PARAM_TYPE_VALUE_OUTPUT,
++						TEE_PARAM_TYPE_NONE);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!imx_rproc_is_valid(params[0].value.a))
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	/* Support only ELF format */
++	params[1].value.a = PTA_RPROC_HWCAP_FMT_ELF;
++
++	/*
++	 * Support hash protected image only, so that firmware image can be
++	 * loaded from non-secure memory.
++	 */
++	params[2].value.a = PTA_RPROC_HWCAP_PROT_HASH_TABLE;
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result rproc_pta_load_segment(uint32_t pt,
++					 TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT);
++	TEE_Result res = TEE_ERROR_GENERIC;
++	paddr_t pa = 0;
++	void *dst = NULL;
++	uint8_t *src = params[1].memref.buffer;
++	size_t size = params[1].memref.size;
++	uint8_t *hash = params[3].memref.buffer;
++	paddr_t da = (paddr_t)reg_pair_to_64(params[2].value.b,
++					     params[2].value.a);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!hash || params[3].memref.size != TEE_SHA256_HASH_SIZE)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	/* Get the physical address in local context mapping */
++	res = imx_rproc_da_to_pa(params[0].value.a, da, size, &pa);
++	if (res)
++		return res;
++
++	if (imx_rproc_map(params[0].value.a, pa, size, &dst)) {
++		EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
++		return TEE_ERROR_GENERIC;
++	}
++
++	/* Copy the segment to the remote processor memory */
++	memcpy(dst, src, size);
++
++	/* Verify that loaded segment is valid */
++	res = hash_sha256_check(hash, dst, size);
++	if (res)
++		memset(dst, 0, size);
++
++	imx_rproc_unmap(params[0].value.a, dst, size);
++
++	return res;
++}
++
++static TEE_Result rproc_pta_set_memory(uint32_t pt,
++				       TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT);
++	TEE_Result res = TEE_ERROR_GENERIC;
++	paddr_t pa = 0;
++	void *dst = NULL;
++	paddr_t da = params[1].value.a;
++	size_t size = params[2].value.a;
++	uint8_t value = params[3].value.a & 0xFF;
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	/* Get the physical address in CPU mapping */
++	res = imx_rproc_da_to_pa(params[0].value.a, da, size, &pa);
++	if (res)
++		return res;
++
++	res = imx_rproc_map(params[0].value.a, pa, size, &dst);
++	if (res) {
++		EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
++		return TEE_ERROR_GENERIC;
++	}
++
++	memset(dst, value, size);
++
++	return imx_rproc_unmap(params[0].value.a, dst, size);
++}
++
++static TEE_Result rproc_pta_da_to_pa(uint32_t pt,
++				     TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_OUTPUT);
++	TEE_Result res = TEE_ERROR_GENERIC;
++	paddr_t da = params[1].value.a;
++	size_t size = params[2].value.a;
++	paddr_t pa = 0;
++
++	DMSG("Conversion for address %#"PRIxPA" size %zu", da, size);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	/* Target address is expected 32bit, ensure 32bit MSB are zero */
++	if (params[1].value.b || params[2].value.b)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	res = imx_rproc_da_to_pa(params[0].value.a, da, size, &pa);
++	if (res)
++		return res;
++
++	reg_pair_from_64((uint64_t)pa, &params[3].value.b, &params[3].value.a);
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result rproc_pta_start(uint32_t pt,
++				  TEE_Param params[TEE_NUM_PARAMS])
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	res = imx_rproc_start(params[0].value.a);
++	if (res)
++		return res;
++
++	rproc_ta_state = REMOTEPROC_ON;
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result rproc_pta_stop(uint32_t pt,
++				 TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_ON)
++		return TEE_ERROR_BAD_STATE;
++
++	res = imx_rproc_stop(params[0].value.a);
++	if (res)
++		return res;
++
++	rproc_ta_state = REMOTEPROC_OFF;
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result rproc_pta_verify_rsa_signature(TEE_Param *hash,
++						 TEE_Param *sig, uint32_t algo)
++{
++	struct rsa_public_key key = { };
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint32_t e = TEE_U32_TO_BIG_ENDIAN(rproc_pub_key_exponent);
++	size_t hash_size = (size_t)hash->memref.size;
++	size_t sig_size = (size_t)sig->memref.size;
++
++	res = crypto_acipher_alloc_rsa_public_key(&key, sig_size);
++	if (res)
++		return res;
++
++	res = crypto_bignum_bin2bn((uint8_t *)&e, sizeof(e), key.e);
++	if (res)
++		goto out;
++
++	res = crypto_bignum_bin2bn(rproc_pub_key_modulus,
++				   rproc_pub_key_modulus_size, key.n);
++	if (res)
++		goto out;
++
++	res = crypto_acipher_rsassa_verify(algo, &key, hash_size,
++					   hash->memref.buffer, hash_size,
++					   sig->memref.buffer, sig_size);
++
++out:
++	crypto_acipher_free_rsa_public_key(&key);
++
++	return res;
++}
++
++static TEE_Result rproc_pta_verify_digest(uint32_t pt,
++					  TEE_Param params[TEE_NUM_PARAMS])
++{
++	struct rproc_pta_key_info *keyinfo = NULL;
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!imx_rproc_is_valid(params[0].value.a))
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	keyinfo = params[1].memref.buffer;
++
++	if (!keyinfo ||
++	    rproc_pta_keyinfo_size(keyinfo) != params[1].memref.size)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (keyinfo->algo != TEE_ALG_RSASSA_PKCS1_V1_5_SHA256)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return rproc_pta_verify_rsa_signature(&params[2], &params[3],
++					      keyinfo->algo);
++}
++
++static TEE_Result rproc_pta_release_resources(uint32_t pt,
++					      TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	/* Clean the resources */
++	return imx_rproc_clean_up_memories(params[0].value.a);
++}
++
++static TEE_Result rproc_pta_invoke_command(void *session __unused,
++					   uint32_t cmd_id,
++					   uint32_t param_types,
++					   TEE_Param params[TEE_NUM_PARAMS])
++{
++	switch (cmd_id) {
++	case PTA_RPROC_HW_CAPABILITIES:
++		return rproc_pta_capabilities(param_types, params);
++	case PTA_RPROC_LOAD_SEGMENT_SHA256:
++		return rproc_pta_load_segment(param_types, params);
++	case PTA_RPROC_SET_MEMORY:
++		return rproc_pta_set_memory(param_types, params);
++	case PTA_RPROC_FIRMWARE_START:
++		return rproc_pta_start(param_types, params);
++	case PTA_RPROC_FIRMWARE_STOP:
++		return rproc_pta_stop(param_types, params);
++	case PTA_RPROC_FIRMWARE_DA_TO_PA:
++		return rproc_pta_da_to_pa(param_types, params);
++	case PTA_RPROC_VERIFY_DIGEST:
++		return rproc_pta_verify_digest(param_types, params);
++	case PTA_REMOTEPROC_RELEASE:
++		return rproc_pta_release_resources(param_types, params);
++	default:
++		return TEE_ERROR_NOT_IMPLEMENTED;
++	}
++}
++
++/*
++ * Pseudo Trusted Application entry points
++ */
++static TEE_Result rproc_pta_open_session(uint32_t pt,
++					 TEE_Param params[TEE_NUM_PARAMS],
++					 void **sess_ctx __unused)
++{
++	struct ts_session *s = ts_get_calling_session();
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++	struct ts_ctx *ctx = NULL;
++	TEE_UUID ta_uuid = TA_REMOTEPROC_UUID;
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!s || !is_user_ta_ctx(s->ctx))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	/* Check that we're called by the remoteproc Trusted application*/
++	ctx = s->ctx;
++	if (memcmp(&ctx->uuid, &ta_uuid, sizeof(TEE_UUID)))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	if (!imx_rproc_is_valid(params[0].value.a))
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return TEE_SUCCESS;
++}
++
++pseudo_ta_register(.uuid = PTA_RPROC_UUID, .name = PTA_NAME,
++		   .flags = PTA_DEFAULT_FLAGS,
++		   .invoke_command_entry_point = rproc_pta_invoke_command,
++		   .open_session_entry_point = rproc_pta_open_session);
+diff --git a/core/pta/imx/rproc_pub_key.h b/core/pta/imx/rproc_pub_key.h
+new file mode 100644
+index 0000000..420f5d0
+--- /dev/null
++++ b/core/pta/imx/rproc_pub_key.h
+@@ -0,0 +1,16 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ */
++
++#ifndef PTA_IMX_RPROC_PUB_KEY_H
++#define PTA_IMX_RPROC_PUB_KEY_H
++
++#include <types_ext.h>
++
++extern const uint32_t rproc_pub_key_exponent;
++extern const uint8_t rproc_pub_key_modulus[];
++extern const size_t rproc_pub_key_modulus_size;
++
++#endif /* PTA_IMX_RPROC_PUB_KEY_H */
++
+diff --git a/core/pta/imx/sub.mk b/core/pta/imx/sub.mk
+index 856216b..794ad48 100644
+--- a/core/pta/imx/sub.mk
++++ b/core/pta/imx/sub.mk
+@@ -4,3 +4,4 @@ srcs-$(CFG_NXP_CAAM_MP_DRV) += manufacturing_protection.c
+ srcs-$(CFG_NXP_CAAM_DEK_DRV) += dek_blob.c
+ srcs-$(CFG_IMX_TRUSTED_ARM_CE) += trusted_arm_ce.c
+ srcs-$(CFG_IMX_ELE_TEST_PTA) += ele_test.c
++srcs-$(CFG_IMX_REMOTEPROC) += remoteproc_pta.c
+-- 
+2.53.0
+

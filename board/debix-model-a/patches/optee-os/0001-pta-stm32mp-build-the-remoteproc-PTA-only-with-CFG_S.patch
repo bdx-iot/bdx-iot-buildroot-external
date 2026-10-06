@@ -1,0 +1,28 @@
+From 85a5ee091cc8eee3ff11b87937c0fa30a92a04df Mon Sep 17 00:00:00 2001
+From: Joris OFFOUGA <offougajoris@icloud.com>
+Date: Tue, 6 Oct 2026 00:06:15 +0200
+Subject: [PATCH 1/2] pta: stm32mp: build the remoteproc PTA only with
+ CFG_STM32MP_REMOTEPROC
+
+The stm32mp PTA directory is built on all platforms, so CFG_REMOTEPROC_PTA
+pulled the STM32MP remoteproc PTA in on any platform enabling the generic
+remoteproc PTA. Build it only with the STM32MP remoteproc driver it uses,
+which already enables CFG_REMOTEPROC_PTA by default.
+
+Signed-off-by: Joris OFFOUGA <offougajoris@icloud.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ core/pta/stm32mp/sub.mk | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/pta/stm32mp/sub.mk b/core/pta/stm32mp/sub.mk
+index 53a738d..c63c0c1 100644
+--- a/core/pta/stm32mp/sub.mk
++++ b/core/pta/stm32mp/sub.mk
+@@ -1,2 +1,2 @@
+ srcs-$(CFG_STM32_BSEC_PTA) += bsec_pta.c
+-srcs-$(CFG_REMOTEPROC_PTA) += remoteproc_pta.c
++srcs-$(CFG_STM32MP_REMOTEPROC) += remoteproc_pta.c
+-- 
+2.53.0
+

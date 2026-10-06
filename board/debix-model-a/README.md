@@ -13,12 +13,15 @@ upstream `mkimage_fit_atf.sh` never sets: `external.mk` adds it to
 and add the `firmware/optee` node Linux needs.
 
 OP-TEE is NXP's `lf-6.12.3-1.0.0` (`imx-mx8mpevk` platform), with the patches
-of `board/common/patches/optee-os`:
+of `board/common/patches/optee-os` then `board/debix-model-a/patches/optee-os`
+(`BR2_GLOBAL_PATCH_DIR`):
 
 | Patch | Purpose |
 |-------|---------|
-| `0001-libmbedtls-enable-PKCS1-v2.1-for-user-TAs` | RSA-PSS in TAs |
-| `0002-libmbedtls-add-TLS-1.2-client-for-user-TAs` | TLS 1.2 client in the TA dev kit |
+| common `0001-libmbedtls-enable-PKCS1-v2.1-for-user-TAs` | RSA-PSS in TAs |
+| common `0002-libmbedtls-add-TLS-1.2-client-for-user-TAs` | TLS 1.2 client in the TA dev kit |
+| board `0001-pta-stm32mp-build-the-remoteproc-PTA-only-with-CFG_S` | build the STM32MP remoteproc PTA only on STM32MP |
+| board `0002-plat-imx-add-i.MX8MP-Cortex-M7-remoteproc-support` | M7 remoteproc driver and PTA (`CFG_IMX_REMOTEPROC=y`), see Cortex-M7 |
 
 ## Storage layout
 
@@ -50,6 +53,7 @@ from `swupdate/sw-description`.
 | `post-build.sh` | copies `Image` and the dtb into `/boot` of the rootfs |
 | `post-image.sh` | `sdcard.img` and the `.swu` update |
 | `linux/dts/freescale/imx8mp-debix-model-a.dts` | board dts (`BR2_LINUX_KERNEL_CUSTOM_DTS_DIR`): Ethernet, HDMI, USB hubs, CAN (`flexcan1`/`flexcan2`), Wi-Fi/BT (BCM4345/6 on `usdhc1` SDIO, Bluetooth on `uart1`), Cortex-M7 (remoteproc, RPMsg); UART3 left to the M7 |
+| `patches/` | OP-TEE and Linux patches (`BR2_GLOBAL_PATCH_DIR`), see Cortex-M7 |
 | `linux/rpmsg.fragment` | `CONFIG_IMX_REMOTEPROC`, `CONFIG_IMX_MBOX`, RPMsg virtio, `rpmsg_tty` (module) |
 | `u-boot/uboot.fragment` | merged into the U-Boot defconfig: OP-TEE, redundant environment, bootcount, USB gadget (UMS, ACM, Ethernet) |
 | `u-boot/boot.cmd` | A/B boot script |
@@ -58,9 +62,22 @@ from `swupdate/sw-description`.
 
 ## Cortex-M7 (remoteproc)
 
-Linux starts the M7 with `imx_rproc` (`fsl,imx8mn-cm7` node), through TF-A
-(`IMX_SIP_SRC`: TF-A enables the M7 at boot and parks it with `CPUWAIT`), and
-talks to it over RPMsg through the MU:
+OP-TEE loads, authenticates, starts and stops the M7 (`CFG_IMX_REMOTEPROC=y`,
+`fsl,imx8mp-cm7-tee` node, `patches/` below): Linux `imx_rproc` hands the
+signed firmware to the OP-TEE remoteproc TA, which checks its signature,
+loads it into the TCM and releases the M7 from `CPUWAIT`. Linux then talks to
+the M7 over RPMsg through the MU, on the resource table of the loaded ELF.
+
+Sign the Zephyr ELF with the OP-TEE script and the key whose public part is
+built into OP-TEE (`RPROC_SIGN_KEY`, default `keys/default.pem`: the public
+OP-TEE development key, replace it for a product), RSA only (the PTA does not
+verify ECDSA). The script needs `pycryptodomex` and `pyelftools`:
+
+```
+O=output/build/optee-os-custom
+python3 $O/scripts/sign_rproc_fw.py --in zephyr.elf --out m7-firmware.elf \
+	--key $O/keys/default.pem
+```
 
 ```
 cp m7-firmware.elf /lib/firmware/
@@ -68,6 +85,24 @@ echo m7-firmware.elf > /sys/class/remoteproc/remoteproc0/firmware
 echo start > /sys/class/remoteproc/remoteproc0/state
 echo stop  > /sys/class/remoteproc/remoteproc0/state
 ```
+
+An unsigned ELF is refused ("Not a signed firmware image"). A stop asks the
+TA to release the firmware, which clears the TCM. The firmware is only
+authenticated at load: the M7 is a non-secure bus master and the TCM stays
+writable from Linux. With `fsl,imx8mn-cm7` instead, Linux loads an unsigned
+ELF itself and starts the M7 through TF-A (`IMX_SIP_SRC`).
+
+Tested on the Debix Model A: signed Zephyr firmware (TCM) loaded, started
+and stopped through OP-TEE.
+
+Buildroot applies patches only when it extracts a package: after changing
+them, rebuild OP-TEE and Linux from scratch
+(`make optee-os-dirclean linux-dirclean all`).
+
+| Linux patch (`patches/linux`) | |
+|-------|-|
+| `0001-dt-bindings-remoteproc-imx_rproc-add-fsl-imx8mp-cm7-` | dt-bindings: `fsl,imx8mp-cm7-tee` |
+| `0002-remoteproc-imx_rproc-add-OP-TEE-mode-for-i.MX8MP` | `imx_rproc` OP-TEE mode: TA load, start, stop, release |
 
 | Region | Address |
 |--------|---------|
@@ -96,7 +131,9 @@ echo stop  > /sys/class/remoteproc/remoteproc0/state
 - An `rpmsg-tty` channel from the M7 shows up as `/dev/ttyRPMSG*` once the
   `rpmsg_tty` module is loaded (`modprobe rpmsg_tty` if not automatic).
 - No DDR is reserved for M7 code: firmware runs from the TCM (Zephyr board
-  `imx8mp_debix_model_a/mimx8ml8/m7`, not the `ddr` variant).
+  `imx8mp_debix_model_a/mimx8ml8/m7`, not the `ddr` variant). For the `ddr`
+  variant, reserve its DDR in Linux and give it to OP-TEE with
+  `CFG_IMX_REMOTEPROC_DDR_START`/`CFG_IMX_REMOTEPROC_DDR_SIZE`.
 
 ## U-Boot patches
 

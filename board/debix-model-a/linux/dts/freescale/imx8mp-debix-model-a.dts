@@ -90,7 +90,13 @@
 	};
 
 	imx8mp-cm7 {
-		compatible = "fsl,imx8mn-cm7";
+		/*
+		 * OP-TEE remoteproc TA (CFG_IMX_REMOTEPROC=y) authenticates,
+		 * loads, starts and stops the M7: firmware signed with OP-TEE
+		 * scripts/sign_rproc_fw.py. "fsl,imx8mn-cm7" for Linux to load
+		 * an unsigned ELF and TF-A to start the M7.
+		 */
+		compatible = "fsl,imx8mp-cm7-tee";
 		rsc-da = <0x55000000>;
 		/*
 		 * M7_CORE, not M7_DIV (NXP EVK DT): this kernel does not register
