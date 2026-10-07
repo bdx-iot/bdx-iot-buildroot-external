@@ -1,0 +1,39 @@
+From c8ae744ffaac21e8e17815ba8b959df988aea197 Mon Sep 17 00:00:00 2001
+From: Joris OFFOUGA <offougajoris@icloud.com>
+Date: Tue, 6 Oct 2026 23:37:24 +0200
+Subject: [PATCH 1/2] dt-bindings: remoteproc: imx_rproc: add OP-TEE
+ compatibles
+
+The i.MX7 Cortex-M4 and i.MX8MP Cortex-M7 firmware can be authenticated,
+loaded, started and stopped by the OP-TEE remoteproc TA:
+"fsl,imx7d-cm4-tee" and "fsl,imx8mp-cm7-tee". The node then needs no
+syscon: Linux does not access the remote core reset controls.
+
+Signed-off-by: Joris OFFOUGA <offougajoris@icloud.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Documentation/devicetree/bindings/remoteproc/fsl,imx-rproc.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/remoteproc/fsl,imx-rproc.yaml b/Documentation/devicetree/bindings/remoteproc/fsl,imx-rproc.yaml
+index 57d75ac..5158a01 100644
+--- a/Documentation/devicetree/bindings/remoteproc/fsl,imx-rproc.yaml
++++ b/Documentation/devicetree/bindings/remoteproc/fsl,imx-rproc.yaml
+@@ -17,12 +17,14 @@ properties:
+     enum:
+       - fsl,imx6sx-cm4
+       - fsl,imx7d-cm4
++      - fsl,imx7d-cm4-tee
+       - fsl,imx7ulp-cm4
+       - fsl,imx8mm-cm4
+       - fsl,imx8mn-cm7
+       - fsl,imx8mn-cm7-mmio
+       - fsl,imx8mp-cm7
+       - fsl,imx8mp-cm7-mmio
++      - fsl,imx8mp-cm7-tee
+       - fsl,imx8mq-cm4
+       - fsl,imx8qm-cm4
+       - fsl,imx8qxp-cm4
+-- 
+2.53.0
+

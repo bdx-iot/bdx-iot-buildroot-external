@@ -52,8 +52,24 @@ Linux with a `reserved-memory` node in `linux/dts/nxp/imx/imx7s-warp-optee-m4.dt
 
 ## Cortex-M4 (remoteproc)
 
-Linux starts the M4 with `imx_rproc` (`fsl,imx7d-cm4` node) and talks to it
-over RPMsg through the MU (`mu0a`):
+OP-TEE loads, authenticates, starts and stops the M4 (`CFG_IMX_REMOTEPROC=y`
+of the `bdx-iot/optee-os` branch, `fsl,imx7d-cm4-tee` node, Linux patches
+below): Linux `imx_rproc` hands the
+signed firmware to the OP-TEE remoteproc TA, which checks its signature,
+loads it into the M4 memories and releases the M4 reset (`SRC_M4RCR`).
+Linux then talks to the M4 over RPMsg through the MU (`mu0a`), on the
+resource table of the loaded ELF.
+
+Sign the Zephyr ELF with the OP-TEE script and the key whose public part is
+built into OP-TEE (`RPROC_SIGN_KEY`, default `keys/default.pem`: the public
+OP-TEE development key, replace it for a product), RSA only (the PTA does not
+verify ECDSA). The script needs `pycryptodomex` and `pyelftools`:
+
+```
+O=output/build/optee-os-custom
+python3 $O/scripts/sign_rproc_fw.py --in zephyr.elf --out m4-firmware.elf \
+	--key $O/keys/default.pem
+```
 
 ```
 cp m4-firmware.elf /lib/firmware/
@@ -62,18 +78,36 @@ echo start > /sys/class/remoteproc/remoteproc0/state
 echo stop  > /sys/class/remoteproc/remoteproc0/state
 ```
 
+An unsigned ELF is refused ("Not a signed firmware image"). A stop asks the
+TA to release the firmware, which clears the M4 memories (OCRAM_S, OCRAM,
+TCM). The firmware is only authenticated at load: the M4 is a non-secure bus
+master and its memories stay writable from Linux. With `fsl,imx7d-cm4` and
+`syscon = <&src>` instead, Linux loads an unsigned ELF itself and releases
+the M4 reset.
+
+| Linux patch (`patches/linux`, `BR2_GLOBAL_PATCH_DIR`) | |
+|-------|-|
+| `0001-*` | dt-bindings: `fsl,imx7d-cm4-tee`, `fsl,imx8mp-cm7-tee` |
+| `0002-*` | `imx_rproc` OP-TEE mode: TA load, start, stop, release |
+
+The OP-TEE side is on the `bdx-iot/optee-os` branch (from
+`bdx-iot/imx-remoteproc`): the i.MX7 M4 / i.MX8MP M7 remoteproc driver and
+PTA (`CFG_IMX_REMOTEPROC`), and the STM32MP remoteproc PTA built only on
+STM32MP.
+
 - OP-TEE makes two blocks secure only that the M4, a non-secure bus master,
   needs; `BR2_TARGET_OPTEE_OS_ADDITIONAL_VARIABLES` leaves them open (options
   of the `bdx-iot/optee-os` branch):
   - `CFG_IMX_CSU_M4_OCRAM_S=y`: OCRAM_S, where the M4 reads its boot vector
-    (its address 0) and Linux writes the firmware loaded there;
+    (its address 0);
   - `CFG_IMX_CSU_M4_RDC=y`: the RDC, which M4 firmware such as Zephyr
     programs at startup; without it the M4 faults before `main()`. The
     normal world can then change the RDC permissions too.
-- `imx_rproc` only releases the M4 reset: the firmware vector table must be
-  at address 0 (OCRAM_S code bus, 32 KiB). `imx_rproc` can load OCRAM_S,
-  the TCM, OCRAM (0x900000, 128 KiB) and the DDR reserved for the M4. With
-  Zephyr:
+- OP-TEE only releases the M4 reset: the firmware vector table must be
+  at address 0 (OCRAM_S code bus, 32 KiB). OP-TEE loads OCRAM_S, the TCM and
+  OCRAM (0x900000, 128 KiB); a DDR region only when given with
+  `CFG_IMX_REMOTEPROC_DDR_START`/`CFG_IMX_REMOTEPROC_DDR_SIZE` (the M4 code
+  alias is only accepted for DDR below 0x8FFF0000). With Zephyr:
   - small firmware: `zephyr,flash = &ocram_s_code`, `zephyr,sram =
     &tcmu_sys`; not `ocram_s_sys`, the same OCRAM_S through the system bus;
   - bigger firmware (OpenAMP): `zephyr,flash = &ocram_code` with
@@ -83,8 +117,9 @@ echo stop  > /sys/class/remoteproc/remoteproc0/state
   of the debug USB.
 - A warm reset (`reboot`, `reset`) does not stop the M4: `SRC_M4RCR` and
   OCRAM_S keep their contents, and the M4 runs the previous firmware again as
-  soon as Linux enables its clock. `boot.scr` therefore puts it back in reset
-  (`mw.l 0x3039000c 0xab`, the power-on value) before booting Linux.
+  soon as Linux enables its clock. OP-TEE puts it back in reset at boot, and
+  `boot.scr` does too (`mw.l 0x3039000c 0xab`, the power-on value), which
+  `fsl,imx7d-cm4` without OP-TEE needs.
 - Firmware linked for DDR runs at 0x1d000000 (M4 code alias of
   0x9d000000), 14 MiB, but still needs its vector table at address 0.
 - RPMsg: Linux places the vrings in `vdev0vring0`/`1` (0x9df00000,
@@ -132,6 +167,7 @@ bigger. Current size: ~0.9 MiB (U-Boot ~510 KiB + OP-TEE ~400 KiB).
 | `post-image.sh` | `bl2.bin.imx`, `sdcard.img`, `warp7-<version>.swu` |
 | `linux/dts/nxp/imx/imx7s-warp-optee-m4.dts` | `#include`s the in-tree `imx7s-warp.dts` and adds the OP-TEE nodes, the IO board devices (MCP23008, RTC, EEPROM, LM75A, PCF8591 on i2c3, owned by OP-TEE; MCP2515 CAN) and the Cortex-M4 (remoteproc, MU, reserved memory); disables Wi-Fi (usdhc1) and the SoC RTC (`snvs_rtc`), so the OP-TEE RTC (MCP7940x) is `rtc0` |
 | `linux/optee.fragment` | `CONFIG_TEE`, `CONFIG_OPTEE` |
+| `patches/linux/` | Linux patches (`BR2_GLOBAL_PATCH_DIR`), see Cortex-M4 |
 | `linux/remoteproc.fragment` | `CONFIG_IMX_REMOTEPROC`, `CONFIG_IMX_MBOX`, RPMsg (virtio, char, ctrl, tty) |
 | `linux/sensors.fragment` | sensors, MCP23S08, MCP251x, DS1307 |
 | `u-boot/uboot.fragment` | merged into `warp7_bl33_defconfig`, see below |
@@ -177,6 +213,7 @@ embeds both:
 ```
 make uboot-dirclean arm-trusted-firmware-rebuild all          # U-Boot change
 make optee-os-rebuild arm-trusted-firmware-rebuild all        # OP-TEE change
+make optee-os-dirclean linux-dirclean arm-trusted-firmware-rebuild all  # new OP-TEE commit, patches/
 make arm-trusted-firmware-rebuild all                         # TF-A change
 ```
 

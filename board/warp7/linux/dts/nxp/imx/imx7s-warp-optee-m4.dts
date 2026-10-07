@@ -56,13 +56,16 @@
 	};
 
 	/*
-	 * Started by Linux from /lib/firmware (remoteproc). Its boot vector goes
-	 * to OCRAM_S, which OP-TEE must leave open (CFG_IMX_CSU_M4_OCRAM_S=y).
+	 * Firmware from /lib/firmware (remoteproc), signed with OP-TEE
+	 * scripts/sign_rproc_fw.py: the OP-TEE remoteproc TA
+	 * (CFG_IMX_REMOTEPROC=y) authenticates, loads, starts and stops the M4.
+	 * Its boot vector goes to OCRAM_S, which OP-TEE must leave open to the
+	 * M4 (CFG_IMX_CSU_M4_OCRAM_S=y). "fsl,imx7d-cm4" with
+	 * syscon = <&src> for Linux to load an unsigned ELF and start the M4.
 	 */
 	imx7s-cm4 {
-		compatible = "fsl,imx7d-cm4";
+		compatible = "fsl,imx7d-cm4-tee";
 		clocks = <&clks IMX7D_ARM_M4_ROOT_CLK>;
-		syscon = <&src>;
 		mbox-names = "tx", "rx", "rxdb";
 		/* MU channel 0: the M4 kicks with MU register id = vring id */
 		mboxes = <&mu0a 0 0>, <&mu0a 1 0>, <&mu0a 3 0>;
